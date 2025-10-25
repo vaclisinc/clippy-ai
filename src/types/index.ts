@@ -53,7 +53,7 @@ export interface ClassificationResult {
 }
 
 export interface Config {
-  openRouterApiKey: string
+  openRouterApiKey?: string
   anthropicApiKey?: string
   screenshotInterval: number
   idleThreshold: number

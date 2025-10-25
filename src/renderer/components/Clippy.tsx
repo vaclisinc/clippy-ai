@@ -104,7 +104,7 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
         <button
           className={`emoji-button clippy-${state}`}
           onClick={handleEmojiClick}
-          title={suggestion ? '點我查看建議' : '目前沒有新建議'}
+          title={suggestion ? 'Click to view suggestion' : 'No new suggestions'}
         >
           <span className="emoji">{getEmoji()}</span>
           {hasUnread && <span className="unread-dot" />}
@@ -112,13 +112,13 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
 
         {notificationVisible && (
           <div className="notification-bubble">
-            💬 Clippy 有話要說
+            💬 Clippy has something to say
           </div>
         )}
         <div className="status-label">
-          {state === 'sleeping' && '休息中'}
-          {state === 'thinking' && '分析中...'}
-          {state === 'suggesting' && '有新建議'}
+          {state === 'sleeping' && 'Sleeping'}
+          {state === 'thinking' && 'Analyzing...'}
+          {state === 'suggesting' && 'New suggestion'}
         </div>
       </div>
 
@@ -129,7 +129,7 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
               <p className="panel-type">
                 {suggestion ? suggestion.type.toUpperCase() : 'CLIPPY AI'}
               </p>
-              <h3>{suggestion ? suggestion.title : '目前沒有建議'}</h3>
+              <h3>{suggestion ? suggestion.title : 'No suggestions right now'}</h3>
             </div>
 
             <button className="panel-close" onClick={handleClosePanel}>
@@ -146,18 +146,18 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
                 }}
               />
             ) : (
-              <p className="empty-message">目前沒有新的提示，等一下再看看吧！</p>
+              <p className="empty-message">No fresh tips right now—check back soon!</p>
             )}
           </div>
 
           <div className="panel-actions">
             {suggestion ? (
               <button className="primary" onClick={handleDismissClick}>
-                收到，謝了！👍
+                Got it, thanks! 👍
               </button>
             ) : (
               <button className="secondary" onClick={handleClosePanel}>
-                好的
+                Okay
               </button>
             )}
           </div>
@@ -324,12 +324,16 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
           flex: 1;
           overflow-y: auto;
           margin-bottom: 16px;
+          padding-right: 8px;
         }
 
         .markdown {
           font-size: 14px;
           line-height: 1.6;
           color: rgba(15, 23, 42, 0.8);
+          white-space: pre-wrap;
+          word-break: break-word;
+          overflow-wrap: anywhere;
         }
 
         .markdown code {
@@ -345,6 +349,29 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
           padding: 12px;
           border-radius: 10px;
           overflow-x: auto;
+          white-space: pre;
+        }
+
+        .markdown p {
+          margin: 0 0 12px 0;
+        }
+
+        .markdown a {
+          color: #2563eb;
+          text-decoration: none;
+        }
+
+        .markdown a:hover {
+          text-decoration: underline;
+        }
+
+        .panel-body::-webkit-scrollbar {
+          width: 6px;
+        }
+
+        .panel-body::-webkit-scrollbar-thumb {
+          background: rgba(148, 163, 184, 0.6);
+          border-radius: 999px;
         }
 
         .empty-message {

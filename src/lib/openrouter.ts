@@ -1,14 +1,28 @@
 import OpenAI from 'openai'
+import Anthropic from '@anthropic-ai/sdk'
 import type { Config } from '../types'
 
 export class OpenRouterClient {
-  private client: OpenAI
+  private openRouterClient: OpenAI | null
+  private anthropicClient: Anthropic | null
 
   constructor(config: Config) {
-    this.client = new OpenAI({
-      apiKey: config.openRouterApiKey,
-      baseURL: 'https://openrouter.ai/api/v1'
-    })
+    this.openRouterClient = config.openRouterApiKey
+      ? new OpenAI({
+          apiKey: config.openRouterApiKey,
+          baseURL: 'https://openrouter.ai/api/v1'
+        })
+      : null
+
+    this.anthropicClient = config.anthropicApiKey
+      ? new Anthropic({
+          apiKey: config.anthropicApiKey
+        })
+      : null
+
+    if (!this.openRouterClient && !this.anthropicClient) {
+      throw new Error('No AI client configured. Provide OPENROUTER_API_KEY or ANTHROPIC_API_KEY.')
+    }
   }
 
   /**
@@ -93,9 +107,30 @@ export class OpenRouterClient {
     classification: 'error' | 'idle' | 'normal'
     confidence: number
   }> {
+    if (this.openRouterClient) {
+      return this.classifyWithOpenRouter(screenshot)
+    }
+
+    if (this.anthropicClient) {
+      return this.classifyWithAnthropic(screenshot)
+    }
+
+    throw new Error('No classification client available.')
+  }
+
+  private async classifyWithOpenRouter(
+    screenshot: Buffer
+  ): Promise<{
+    classification: 'error' | 'idle' | 'normal'
+    confidence: number
+  }> {
+    if (!this.openRouterClient) {
+      throw new Error('OpenRouter client not configured')
+    }
+
     const base64Image = screenshot.toString('base64')
 
-    const response = await this.client.chat.completions.create({
+    const response = await this.openRouterClient.chat.completions.create({
       model: 'openai/gpt-4o-mini',
       messages: [
         {
@@ -132,6 +167,57 @@ Respond in JSON: {"classification": "error|idle|normal", "confidence": 0.0-1.0}`
     }
   }
 
+  private async classifyWithAnthropic(
+    screenshot: Buffer
+  ): Promise<{
+    classification: 'error' | 'idle' | 'normal'
+    confidence: number
+  }> {
+    if (!this.anthropicClient) {
+      throw new Error('Anthropic client not configured')
+    }
+
+    const base64Image = screenshot.toString('base64')
+
+    const response = await this.anthropicClient.messages.create({
+      model: 'claude-3-haiku-20240307',
+      max_tokens: 200,
+      temperature: 0,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/png',
+                data: base64Image
+              }
+            },
+            {
+              type: 'text',
+              text: `Classify this screenshot into ONE of these categories:
+- "error": Contains error messages, red text, exceptions, stack traces
+- "idle": Same content for extended time, user reading/stuck
+- "normal": Active work, coding, browsing normally
+
+Respond in JSON: {"classification": "error|idle|normal", "confidence": 0.0-1.0}`
+            }
+          ]
+        }
+      ]
+    })
+
+    const content = this.extractTextFromAnthropic(response.content)
+    const result = this.safeJsonParse(content || '{}')
+
+    return {
+      classification: result.classification || 'normal',
+      confidence: result.confidence || 0.5
+    }
+  }
+
   /**
    * Deep analysis using Claude Sonnet (powerful reasoning)
    */
@@ -144,6 +230,30 @@ Respond in JSON: {"classification": "error|idle|normal", "confidence": 0.0-1.0}`
     suggestion?: string
     reasoning?: string
   }> {
+    if (this.anthropicClient) {
+      return this.analyzeWithAnthropic(screenshot, context, agentType)
+    }
+
+    if (!this.openRouterClient) {
+      throw new Error('No AI client available for analysis.')
+    }
+
+    return this.analyzeWithOpenRouter(screenshot, context, agentType)
+  }
+
+  private async analyzeWithOpenRouter(
+    screenshot: Buffer,
+    context: string,
+    agentType: 'debug' | 'learning'
+  ): Promise<{
+    shouldAssist: boolean
+    suggestion?: string
+    reasoning?: string
+  }> {
+    if (!this.openRouterClient) {
+      throw new Error('OpenRouter client not configured')
+    }
+
     const base64Image = screenshot.toString('base64')
 
     const prompts = {
@@ -175,7 +285,7 @@ Respond in JSON:
 }`
     }
 
-    const response = await this.client.chat.completions.create({
+    const response = await this.openRouterClient.chat.completions.create({
       model: 'anthropic/claude-3.5-sonnet',
       messages: [
         {
@@ -206,5 +316,103 @@ Respond in JSON:
       suggestion: result.suggestion,
       reasoning: result.reasoning
     }
+  }
+
+  private async analyzeWithAnthropic(
+    screenshot: Buffer,
+    context: string,
+    agentType: 'debug' | 'learning'
+  ): Promise<{
+    shouldAssist: boolean
+    suggestion?: string
+    reasoning?: string
+  }> {
+    if (!this.anthropicClient) {
+      throw new Error('Anthropic client not configured')
+    }
+
+    const base64Image = screenshot.toString('base64')
+
+    const prompts = {
+      debug: `You are a helpful debugging assistant. Analyze this screenshot for errors or issues.
+
+If you see error messages, exceptions, or problems:
+1. Identify the error type and cause
+2. Suggest specific solutions
+3. Provide actionable next steps
+
+Respond in JSON:
+{
+  "shouldAssist": true/false,
+  "suggestion": "your helpful suggestion in markdown",
+  "reasoning": "why you decided to help or not"
+}`,
+      learning: `You are a patient learning assistant. The user has been viewing this content for a while.
+
+If the content seems complex or the user might benefit from explanation:
+1. Identify what they're reading/learning
+2. Provide a clear, simple explanation (ELI5 style)
+3. Offer additional resources if helpful
+
+Respond in JSON:
+{
+  "shouldAssist": true/false,
+  "suggestion": "your explanation in markdown",
+  "reasoning": "why you decided to help or not"
+}`
+    }
+
+    const response = await this.anthropicClient.messages.create({
+      model: 'claude-3-5-sonnet-20240620',
+      max_tokens: 1000,
+      temperature: 0.7,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/png',
+                data: base64Image
+              }
+            },
+            {
+              type: 'text',
+              text: `${prompts[agentType]}\n\nContext: ${context}`
+            }
+          ]
+        }
+      ]
+    })
+
+    const content = this.extractTextFromAnthropic(response.content)
+    const result = this.safeJsonParse(content || '{}')
+
+    return {
+      shouldAssist: result.shouldAssist || false,
+      suggestion: result.suggestion,
+      reasoning: result.reasoning
+    }
+  }
+
+  private extractTextFromAnthropic(
+    blocks: Array<{ type?: string; text?: string }>
+  ): string {
+    if (!Array.isArray(blocks)) {
+      return ''
+    }
+
+    return blocks
+      .map(block => {
+        if (block && block.type === 'text' && typeof block.text === 'string') {
+          return block.text
+        }
+        return ''
+      })
+      .filter(Boolean)
+      .join('\n')
+      .trim()
   }
 }

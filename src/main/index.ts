@@ -25,6 +25,37 @@ let config: any
 const WINDOW_MARGIN = 24
 const COLLAPSED_SIZE = { width: 160, height: 160 }
 const EXPANDED_SIZE = { width: 420, height: 520 }
+const SUGGESTION_COOLDOWN_MS = 60 * 1000
+const DISMISS_SUPPRESSION_MS = 5 * 60 * 1000
+
+let lastSuggestionSignature: string | null = null
+let lastSuggestionSentAt = 0
+let activeSuggestionSignature: string | null = null
+const suppressedSuggestions = new Map<string, number>()
+
+function createSuggestionSignature(suggestion: {
+  type: string
+  title: string
+  content: string
+}): string {
+  const title = suggestion.title ? suggestion.title.trim() : ''
+  const content = suggestion.content ? suggestion.content.trim() : ''
+  return `${suggestion.type}::${title}::${content}`
+}
+
+function pruneSuppressedSuggestions(now: number) {
+  for (const [signature, timestamp] of suppressedSuggestions.entries()) {
+    if (now - timestamp > DISMISS_SUPPRESSION_MS) {
+      suppressedSuggestions.delete(signature)
+    }
+  }
+}
+
+function updateClippyState(state: 'sleeping' | 'thinking' | 'suggesting') {
+  if (clippyWindow && !clippyWindow.isDestroyed()) {
+    clippyWindow.webContents.send('clippy-state', state)
+  }
+}
 
 function positionClippyWindow(window: BrowserWindow, size = COLLAPSED_SIZE) {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
@@ -140,6 +171,8 @@ async function startScreenMonitoring() {
 
     console.log('[Monitor] 🤖 Sending to AI for classification...')
 
+    updateClippyState('thinking')
+
     // Route to appropriate agent
     const response = await router.route(screenshot, context)
 
@@ -161,12 +194,28 @@ async function startScreenMonitoring() {
       console.log('[Monitor] 📤 Sending suggestion to renderer...')
 
       try {
-        // Send suggestion to renderer
-        if (clippyWindow && !clippyWindow.isDestroyed()) {
+        const signature = createSuggestionSignature(serializableSuggestion)
+        pruneSuppressedSuggestions(now)
+
+        const suppressedUntil = suppressedSuggestions.get(signature)
+        if (suppressedUntil && now - suppressedUntil < DISMISS_SUPPRESSION_MS) {
+          console.log('[Monitor] 🔁 Suggestion suppressed (recently dismissed)')
+          updateClippyState('sleeping')
+        } else if (
+          signature === lastSuggestionSignature &&
+          now - lastSuggestionSentAt < SUGGESTION_COOLDOWN_MS
+        ) {
+          console.log('[Monitor] 🔁 Suggestion suppressed (cooldown active)')
+          updateClippyState('sleeping')
+        } else if (clippyWindow && !clippyWindow.isDestroyed()) {
           clippyWindow.show()
           clippyWindow.webContents.send('suggestion', serializableSuggestion)
-          clippyWindow.webContents.send('clippy-state', 'suggesting')
+          updateClippyState('suggesting')
           console.log('[Monitor] ✅ Suggestion sent to Clippy window')
+
+          lastSuggestionSignature = signature
+          lastSuggestionSentAt = now
+          activeSuggestionSignature = signature
         } else {
           console.log('[Monitor] ❌ Clippy window not available')
         }
@@ -182,6 +231,9 @@ async function startScreenMonitoring() {
       })
     } else {
       console.log('[Monitor] ✋ No assistance needed (classified as normal)')
+      activeSuggestionSignature = null
+
+      updateClippyState('sleeping')
     }
   }, config.screenshotInterval * 1000)
 }
@@ -196,7 +248,6 @@ app.whenReady().then(async () => {
     console.log('[Clippy AI] Make sure .env file exists with OPENROUTER_API_KEY')
     // Continue without AI features for now (just show UI)
     config = {
-      openRouterApiKey: '',
       screenshotInterval: 15,
       idleThreshold: 180,
       debug: true
@@ -208,7 +259,7 @@ app.whenReady().then(async () => {
   createTray()
 
   // Initialize AI components only if we have API key
-  if (config.openRouterApiKey) {
+  if (config.openRouterApiKey || config.anthropicApiKey) {
     try {
       screenCapture = new ScreenCapture()
       db = new ContextDB()
@@ -249,7 +300,12 @@ app.on('before-quit', () => {
 
 // IPC Handlers
 ipcMain.handle('dismiss-suggestion', () => {
-  clippyWindow?.webContents.send('clippy-state', 'sleeping')
+  updateClippyState('sleeping')
+
+  if (activeSuggestionSignature) {
+    suppressedSuggestions.set(activeSuggestionSignature, Date.now())
+    activeSuggestionSignature = null
+  }
 })
 
 ipcMain.handle('user-activity', () => {

@@ -135,14 +135,18 @@ This context is passed to agents for better decision-making.
 Create a `.env` file (copy from `.env.example`):
 
 ```bash
-# Required
+# Required (pick at least one)
 OPENROUTER_API_KEY=sk-or-...
+# or
+ANTHROPIC_API_KEY=sk-ant-...
 
 # Optional tuning
 SCREENSHOT_INTERVAL=15    # seconds between captures
 IDLE_THRESHOLD=180        # seconds before idle detection
 DEBUG=false               # enable verbose logging
 ```
+
+If both keys are present, Clippy will keep using OpenRouter (GPT-4o mini) for fast classifications and talk to Anthropic directly for deep suggestions. If only `ANTHROPIC_API_KEY` is set, Claude handles both phases.
 
 ## macOS Screen Recording Permission
 
