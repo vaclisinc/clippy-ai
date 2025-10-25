@@ -13,6 +13,7 @@ import { ScreenCapture } from './screen-capture'
 import { ContextDB } from '../lib/db'
 import { AgentRouter } from '../agents/router'
 import { loadConfig } from './config'
+import type { Screenshot, Config } from '../types'
 let clippyWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
@@ -20,18 +21,22 @@ let screenCapture: ScreenCapture
 let db: ContextDB
 let router: AgentRouter
 let captureInterval: NodeJS.Timeout | null = null
-let config: any
+let config: Config
 
 const WINDOW_MARGIN = 24
 const COLLAPSED_SIZE = { width: 160, height: 160 }
 const EXPANDED_SIZE = { width: 420, height: 520 }
 const SUGGESTION_COOLDOWN_MS = 60 * 1000
 const DISMISS_SUPPRESSION_MS = 5 * 60 * 1000
+const FRAME_CAPTURE_INTERVAL_MS = 1000
 
 let lastSuggestionSignature: string | null = null
 let lastSuggestionSentAt = 0
 let activeSuggestionSignature: string | null = null
 const suppressedSuggestions = new Map<string, number>()
+const frameBuffer: Screenshot[] = []
+let frameBatchSize = 15
+let frameBatchCount = 0
 
 function createSuggestionSignature(suggestion: {
   type: string
@@ -127,11 +132,11 @@ async function startScreenMonitoring() {
     clearInterval(captureInterval)
   }
 
-  let captureCount = 0
+  let frameCount = 0
 
   captureInterval = setInterval(async () => {
-    captureCount++
-    console.log(`\n[Monitor] 📸 Screenshot #${captureCount} at ${new Date().toLocaleTimeString()}`)
+    frameCount++
+    console.log(`\n[Monitor] 📸 Capturing frame #${frameCount} at ${new Date().toLocaleTimeString()}`)
 
     const screenshot = await screenCapture.captureScreen()
 
@@ -140,25 +145,14 @@ async function startScreenMonitoring() {
       return
     }
 
-    console.log(`[Monitor] ✅ Captured ${screenshot.width}x${screenshot.height} (${Math.round(screenshot.buffer.length / 1024)}KB)`)
+    frameBuffer.push(screenshot)
 
-    // Save screenshot for debugging
-    const screenshotsDir = join(app.getPath('userData'), 'screenshots')
-    const screenshotPath = join(screenshotsDir, `screenshot-${captureCount}.png`)
-    try {
-      // Create directory if it doesn't exist
-      const { mkdirSync } = require('fs')
-      try {
-        mkdirSync(screenshotsDir, { recursive: true })
-      } catch (e) {
-        // Directory might already exist, ignore
-      }
-
-      writeFileSync(screenshotPath, screenshot.buffer)
-      console.log(`[Monitor] 💾 Saved to: ${screenshotPath}`)
-    } catch (error) {
-      console.error('[Monitor] Failed to save screenshot:', error)
+    // Keep only the most recent frames needed for a batch
+    if (frameBuffer.length > frameBatchSize) {
+      frameBuffer.splice(0, frameBuffer.length - frameBatchSize)
     }
+
+    console.log(`[Monitor] ✅ Frame captured (${screenshot.width}x${screenshot.height}, ${Math.round(screenshot.buffer.length / 1024)}KB). Buffer: ${frameBuffer.length}/${frameBatchSize}`)
 
     // Get context from database
     const context = db.getContext()
@@ -168,13 +162,47 @@ async function startScreenMonitoring() {
     const now = Date.now()
     const timeSinceLastActivity = now - context.lastActivity
     db.updateIdleTime(timeSinceLastActivity)
+    context.previousScreenshots = [...frameBuffer]
 
-    console.log('[Monitor] 🤖 Sending to AI for classification...')
+    if (frameBuffer.length < frameBatchSize) {
+      console.log('[Monitor] ⏳ Waiting for more frames before classification...')
+      return
+    }
+
+    // Prepare batch and reset buffer for next cycle
+    const framesForAnalysis = [...frameBuffer]
+    frameBuffer.length = 0
+    frameBatchCount++
+
+    console.log(`[Monitor] 🎞️ Processing frame batch #${frameBatchCount} (${framesForAnalysis.length} frames)`)
+
+    // Save latest frame from batch for debugging
+    const latestFrame = framesForAnalysis[framesForAnalysis.length - 1]
+    const analysisTimestamp = latestFrame.timestamp || now
+    const screenshotsDir = join(app.getPath('userData'), 'screenshots')
+    const screenshotPath = join(screenshotsDir, `batch-${frameBatchCount}-latest.png`)
+    try {
+      const { mkdirSync } = require('fs')
+      try {
+        mkdirSync(screenshotsDir, { recursive: true })
+      } catch (e) {
+        // Directory might already exist, ignore
+      }
+
+      writeFileSync(screenshotPath, latestFrame.buffer)
+      console.log(`[Monitor] 💾 Saved latest batch frame to: ${screenshotPath}`)
+    } catch (error) {
+      console.error('[Monitor] Failed to save batch frame:', error)
+    }
+
+    console.log('[Monitor] 🤖 Sending batch to AI for classification...')
 
     updateClippyState('thinking')
 
+    context.previousScreenshots = framesForAnalysis
+
     // Route to appropriate agent
-    const response = await router.route(screenshot, context)
+    const response = await router.route(framesForAnalysis, context)
 
     if (response.shouldAssist && response.suggestion) {
       console.log('[Monitor] 💡 Got suggestion!')
@@ -195,15 +223,15 @@ async function startScreenMonitoring() {
 
       try {
         const signature = createSuggestionSignature(serializableSuggestion)
-        pruneSuppressedSuggestions(now)
+        pruneSuppressedSuggestions(analysisTimestamp)
 
         const suppressedUntil = suppressedSuggestions.get(signature)
-        if (suppressedUntil && now - suppressedUntil < DISMISS_SUPPRESSION_MS) {
+        if (suppressedUntil && analysisTimestamp - suppressedUntil < DISMISS_SUPPRESSION_MS) {
           console.log('[Monitor] 🔁 Suggestion suppressed (recently dismissed)')
           updateClippyState('sleeping')
         } else if (
           signature === lastSuggestionSignature &&
-          now - lastSuggestionSentAt < SUGGESTION_COOLDOWN_MS
+          analysisTimestamp - lastSuggestionSentAt < SUGGESTION_COOLDOWN_MS
         ) {
           console.log('[Monitor] 🔁 Suggestion suppressed (cooldown active)')
           updateClippyState('sleeping')
@@ -214,7 +242,7 @@ async function startScreenMonitoring() {
           console.log('[Monitor] ✅ Suggestion sent to Clippy window')
 
           lastSuggestionSignature = signature
-          lastSuggestionSentAt = now
+          lastSuggestionSentAt = analysisTimestamp
           activeSuggestionSignature = signature
         } else {
           console.log('[Monitor] ❌ Clippy window not available')
@@ -226,7 +254,7 @@ async function startScreenMonitoring() {
       // Log event
       db.addEvent({
         type: response.suggestion.type === 'debug' ? 'error' : 'idle',
-        timestamp: now,
+        timestamp: response.suggestion.timestamp || analysisTimestamp,
         confidence: response.suggestion.confidence
       })
     } else {
@@ -235,7 +263,7 @@ async function startScreenMonitoring() {
 
       updateClippyState('sleeping')
     }
-  }, config.screenshotInterval * 1000)
+  }, FRAME_CAPTURE_INTERVAL_MS)
 }
 
 app.whenReady().then(async () => {
@@ -243,6 +271,13 @@ app.whenReady().then(async () => {
     // Load configuration
     config = loadConfig()
     console.log('[Clippy AI] Configuration loaded successfully')
+    frameBatchSize = Math.max(config.screenshotInterval, 1)
+    console.log(
+      `[Clippy AI] Frame batch size: ${frameBatchSize} (capturing 1 frame/sec)`
+    )
+    console.log(
+      `[Clippy AI] Will analyze every ${frameBatchSize} frames (~${frameBatchSize} seconds).`
+    )
   } catch (error) {
     console.error('[Clippy AI] Failed to load configuration:', error)
     console.log('[Clippy AI] Make sure .env file exists with OPENROUTER_API_KEY')
@@ -252,6 +287,13 @@ app.whenReady().then(async () => {
       idleThreshold: 180,
       debug: true
     }
+    frameBatchSize = Math.max(config.screenshotInterval, 1)
+    console.log(
+      `[Clippy AI] Falling back to frame batch size ${frameBatchSize}`
+    )
+    console.log(
+      `[Clippy AI] Will analyze every ${frameBatchSize} frames (~${frameBatchSize} seconds).`
+    )
   }
 
   // Create windows first (so user sees something)

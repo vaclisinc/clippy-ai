@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import Anthropic from '@anthropic-ai/sdk'
-import type { Config } from '../types'
+import type { Config, Screenshot } from '../types'
 
 export class OpenRouterClient {
   private openRouterClient: OpenAI | null
@@ -100,26 +100,57 @@ export class OpenRouterClient {
     }
   }
 
+  private buildOpenAIImageBlocks(frames: Screenshot[]): Array<{
+    type: 'image_url'
+    image_url: { url: string; detail?: 'low' | 'high' }
+  }> {
+    return frames.map((frame) => ({
+      type: 'image_url' as const,
+      image_url: {
+        url: `data:image/png;base64,${frame.buffer.toString('base64')}`,
+        detail: 'low'
+      }
+    }))
+  }
+
+  private buildAnthropicImageBlocks(frames: Screenshot[]): Array<{
+    type: 'image'
+    source: { type: 'base64'; media_type: 'image/png'; data: string }
+  }> {
+    return frames.map((frame) => ({
+      type: 'image' as const,
+      source: {
+        type: 'base64' as const,
+        media_type: 'image/png' as const,
+        data: frame.buffer.toString('base64')
+      }
+    }))
+  }
+
   /**
    * Quick classification using GPT-4o mini (cheap and fast)
    */
-  async classify(screenshot: Buffer): Promise<{
+  async classify(frames: Screenshot[]): Promise<{
     classification: 'error' | 'idle' | 'normal'
     confidence: number
   }> {
+    if (frames.length === 0) {
+      throw new Error('No frames supplied for classification')
+    }
+
     if (this.openRouterClient) {
-      return this.classifyWithOpenRouter(screenshot)
+      return this.classifyWithOpenRouter(frames)
     }
 
     if (this.anthropicClient) {
-      return this.classifyWithAnthropic(screenshot)
+      return this.classifyWithAnthropic(frames)
     }
 
     throw new Error('No classification client available.')
   }
 
   private async classifyWithOpenRouter(
-    screenshot: Buffer
+    frames: Screenshot[]
   ): Promise<{
     classification: 'error' | 'idle' | 'normal'
     confidence: number
@@ -128,38 +159,30 @@ export class OpenRouterClient {
       throw new Error('OpenRouter client not configured')
     }
 
-    const base64Image = screenshot.toString('base64')
+    const messageContent = [
+      ...this.buildOpenAIImageBlocks(frames),
+      {
+        type: 'text',
+        text: `You are given ${frames.length} sequential screenshots captured roughly one second apart (oldest first). Analyze the sequence to detect if the user encountered an error, appears idle, or is working normally.
+
+Return JSON: {"classification":"error|idle|normal","confidence":0.0-1.0}`
+      }
+    ] as any
 
     const response = await this.openRouterClient.chat.completions.create({
       model: 'openai/gpt-4o-mini',
       messages: [
         {
           role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:image/png;base64,${base64Image}`
-              }
-            },
-            {
-              type: 'text',
-              text: `Classify this screenshot into ONE of these categories:
-- "error": Contains error messages, red text, exceptions, stack traces
-- "idle": Same content for extended time, user reading/stuck
-- "normal": Active work, coding, browsing normally
-
-Respond in JSON: {"classification": "error|idle|normal", "confidence": 0.0-1.0}`
-            }
-          ]
+          content: messageContent
         }
       ],
       max_tokens: 100,
       temperature: 0.3
     })
 
-    const content = response.choices[0]?.message?.content || '{}'
-    const result = this.safeJsonParse(content)
+    const responseContent = response.choices[0]?.message?.content || '{}'
+    const result = this.safeJsonParse(responseContent)
 
     return {
       classification: result.classification || 'normal',
@@ -168,7 +191,7 @@ Respond in JSON: {"classification": "error|idle|normal", "confidence": 0.0-1.0}`
   }
 
   private async classifyWithAnthropic(
-    screenshot: Buffer
+    frames: Screenshot[]
   ): Promise<{
     classification: 'error' | 'idle' | 'normal'
     confidence: number
@@ -177,7 +200,18 @@ Respond in JSON: {"classification": "error|idle|normal", "confidence": 0.0-1.0}`
       throw new Error('Anthropic client not configured')
     }
 
-    const base64Image = screenshot.toString('base64')
+    const messageContent = [
+      ...this.buildAnthropicImageBlocks(frames),
+      {
+        type: 'text',
+        text: `You are given ${frames.length} sequential screenshots captured roughly one second apart (oldest first). Classify the overall activity as:
+- "error": visible error messages, exceptions, stack traces
+- "idle": minimal change, user likely reading or waiting
+- "normal": active work or browsing
+
+Respond in JSON: {"classification":"error|idle|normal","confidence":0.0-1.0}`
+      }
+    ] as any
 
     const response = await this.anthropicClient.messages.create({
       model: 'claude-3-haiku-20240307',
@@ -186,31 +220,13 @@ Respond in JSON: {"classification": "error|idle|normal", "confidence": 0.0-1.0}`
       messages: [
         {
           role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: 'image/png',
-                data: base64Image
-              }
-            },
-            {
-              type: 'text',
-              text: `Classify this screenshot into ONE of these categories:
-- "error": Contains error messages, red text, exceptions, stack traces
-- "idle": Same content for extended time, user reading/stuck
-- "normal": Active work, coding, browsing normally
-
-Respond in JSON: {"classification": "error|idle|normal", "confidence": 0.0-1.0}`
-            }
-          ]
+          content: messageContent
         }
       ]
     })
 
-    const content = this.extractTextFromAnthropic(response.content)
-    const result = this.safeJsonParse(content || '{}')
+    const responseContent = this.extractTextFromAnthropic(response.content)
+    const result = this.safeJsonParse(responseContent || '{}')
 
     return {
       classification: result.classification || 'normal',
@@ -222,7 +238,7 @@ Respond in JSON: {"classification": "error|idle|normal", "confidence": 0.0-1.0}`
    * Deep analysis using Claude Sonnet (powerful reasoning)
    */
   async analyze(
-    screenshot: Buffer,
+    frames: Screenshot[],
     context: string,
     agentType: 'debug' | 'learning'
   ): Promise<{
@@ -230,19 +246,23 @@ Respond in JSON: {"classification": "error|idle|normal", "confidence": 0.0-1.0}`
     suggestion?: string
     reasoning?: string
   }> {
+    if (frames.length === 0) {
+      throw new Error('No frames supplied for analysis')
+    }
+
     if (this.anthropicClient) {
-      return this.analyzeWithAnthropic(screenshot, context, agentType)
+      return this.analyzeWithAnthropic(frames, context, agentType)
     }
 
     if (!this.openRouterClient) {
       throw new Error('No AI client available for analysis.')
     }
 
-    return this.analyzeWithOpenRouter(screenshot, context, agentType)
+    return this.analyzeWithOpenRouter(frames, context, agentType)
   }
 
   private async analyzeWithOpenRouter(
-    screenshot: Buffer,
+    frames: Screenshot[],
     context: string,
     agentType: 'debug' | 'learning'
   ): Promise<{
@@ -254,10 +274,8 @@ Respond in JSON: {"classification": "error|idle|normal", "confidence": 0.0-1.0}`
       throw new Error('OpenRouter client not configured')
     }
 
-    const base64Image = screenshot.toString('base64')
-
     const prompts = {
-      debug: `You are a helpful debugging assistant. Analyze this screenshot for errors or issues.
+      debug: `You are a helpful debugging assistant. Analyze this sequence of screenshots for errors or issues.
 
 If you see error messages, exceptions, or problems:
 1. Identify the error type and cause
@@ -285,31 +303,28 @@ Respond in JSON:
 }`
     }
 
+    const messageContent = [
+      ...this.buildOpenAIImageBlocks(frames),
+      {
+        type: 'text',
+        text: `${prompts[agentType]}\n\nScreenshots are chronological (oldest first) and captured about one second apart.\n\nContext: ${context}`
+      }
+    ] as any
+
     const response = await this.openRouterClient.chat.completions.create({
       model: 'anthropic/claude-3.5-sonnet',
       messages: [
         {
           role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:image/png;base64,${base64Image}`
-              }
-            },
-            {
-              type: 'text',
-              text: `${prompts[agentType]}\n\nContext: ${context}`
-            }
-          ]
+          content: messageContent
         }
       ],
       max_tokens: 1000,
       temperature: 0.7
     })
 
-    const content = response.choices[0]?.message?.content || '{}'
-    const result = this.safeJsonParse(content)
+    const responseContent = response.choices[0]?.message?.content || '{}'
+    const result = this.safeJsonParse(responseContent)
 
     return {
       shouldAssist: result.shouldAssist || false,
@@ -319,7 +334,7 @@ Respond in JSON:
   }
 
   private async analyzeWithAnthropic(
-    screenshot: Buffer,
+    frames: Screenshot[],
     context: string,
     agentType: 'debug' | 'learning'
   ): Promise<{
@@ -331,10 +346,8 @@ Respond in JSON:
       throw new Error('Anthropic client not configured')
     }
 
-    const base64Image = screenshot.toString('base64')
-
     const prompts = {
-      debug: `You are a helpful debugging assistant. Analyze this screenshot for errors or issues.
+      debug: `You are a helpful debugging assistant. Analyze this sequence of screenshots for errors or issues.
 
 If you see error messages, exceptions, or problems:
 1. Identify the error type and cause
@@ -362,6 +375,14 @@ Respond in JSON:
 }`
     }
 
+    const messageContent = [
+      ...this.buildAnthropicImageBlocks(frames),
+      {
+        type: 'text',
+        text: `${prompts[agentType]}\n\nScreenshots are chronological (oldest first) and captured about one second apart.\n\nContext: ${context}`
+      }
+    ] as any
+
     const response = await this.anthropicClient.messages.create({
       model: 'claude-3-5-sonnet-20240620',
       max_tokens: 1000,
@@ -369,26 +390,13 @@ Respond in JSON:
       messages: [
         {
           role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: 'image/png',
-                data: base64Image
-              }
-            },
-            {
-              type: 'text',
-              text: `${prompts[agentType]}\n\nContext: ${context}`
-            }
-          ]
+          content: messageContent
         }
       ]
     })
 
-    const content = this.extractTextFromAnthropic(response.content)
-    const result = this.safeJsonParse(content || '{}')
+    const responseContent = this.extractTextFromAnthropic(response.content)
+    const result = this.safeJsonParse(responseContent || '{}')
 
     return {
       shouldAssist: result.shouldAssist || false,

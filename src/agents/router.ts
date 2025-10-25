@@ -21,13 +21,20 @@ export class AgentRouter {
   }
 
   async route(
-    screenshot: Screenshot,
+    frames: Screenshot[],
     context: Context
   ): Promise<AgentResponse> {
     try {
+      if (frames.length === 0) {
+        console.warn('[Router] ⚠️ No frames provided for routing')
+        return { shouldAssist: false }
+      }
+
       // Step 1: Quick classification
-      console.log('[Router] 🔍 Classifying screenshot...')
-      const classification = await this.quickScreen(screenshot)
+      console.log(
+        `[Router] 🔍 Classifying frame batch (${frames.length} frames)...`
+      )
+      const classification = await this.quickScreen(frames)
 
       console.log(`[Router] 📋 Result: "${classification.classification}" (confidence: ${(classification.confidence * 100).toFixed(0)}%)`)
 
@@ -40,12 +47,12 @@ export class AgentRouter {
       // Step 3: Route to appropriate agent
       if (classification.classification === 'error') {
         console.log('[Router] 🐛 Routing to Debug Agent...')
-        return await this.debugAgent.analyze(screenshot, context)
+        return await this.debugAgent.analyze(frames, context)
       }
 
       if (classification.classification === 'idle') {
         console.log('[Router] 📚 Routing to Learning Agent...')
-        return await this.learningAgent.analyze(screenshot, context)
+        return await this.learningAgent.analyze(frames, context)
       }
 
       return { shouldAssist: false }
@@ -56,10 +63,10 @@ export class AgentRouter {
   }
 
   private async quickScreen(
-    screenshot: Screenshot
+    frames: Screenshot[]
   ): Promise<ClassificationResult> {
     try {
-      const result = await this.client.classify(screenshot.buffer)
+      const result = await this.client.classify(frames)
 
       return {
         classification: result.classification,

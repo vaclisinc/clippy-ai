@@ -10,7 +10,7 @@ export class LearningAgent extends BaseAgent {
   }
 
   async analyze(
-    screenshot: Screenshot,
+    frames: Screenshot[],
     context: Context
   ): Promise<AgentResponse> {
     // Only assist if user has been idle long enough
@@ -19,9 +19,10 @@ export class LearningAgent extends BaseAgent {
     }
 
     const contextStr = this.createContext(context)
+    const latestFrame = frames[frames.length - 1]
 
     const result = await this.client.analyze(
-      screenshot.buffer,
+      frames,
       contextStr,
       'learning'
     )
@@ -37,7 +38,7 @@ export class LearningAgent extends BaseAgent {
         title: '📚 Need help understanding this?',
         content: result.suggestion,
         confidence: 0.7,
-        timestamp: Date.now()
+        timestamp: latestFrame?.timestamp || Date.now()
         // Note: actions removed because functions can't be serialized over IPC
       },
       reasoning: result.reasoning

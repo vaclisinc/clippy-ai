@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Suggestion } from '../../types'
 
 type ClippyState = 'sleeping' | 'thinking' | 'suggesting'
@@ -12,8 +12,6 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
   const [state, setState] = useState<ClippyState>('sleeping')
   const [panelOpen, setPanelOpen] = useState(false)
   const [hasUnread, setHasUnread] = useState(false)
-  const [notificationVisible, setNotificationVisible] = useState(false)
-  const notificationTimer = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     if (!window.electronAPI) return
@@ -27,41 +25,15 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
     if (suggestion) {
       if (panelOpen) {
         setHasUnread(false)
-        setNotificationVisible(false)
       } else {
         setHasUnread(true)
-        setNotificationVisible(true)
       }
 
-      if (notificationTimer.current) {
-        clearTimeout(notificationTimer.current)
-        notificationTimer.current = null
-      }
-
-      notificationTimer.current = setTimeout(() => {
-        setNotificationVisible(false)
-        notificationTimer.current = null
-      }, 4000)
     } else {
-      if (notificationTimer.current) {
-        clearTimeout(notificationTimer.current)
-        notificationTimer.current = null
-      }
-
       setPanelOpen(false)
       setHasUnread(false)
-      setNotificationVisible(false)
     }
   }, [suggestion, panelOpen])
-
-  useEffect(() => {
-    return () => {
-      if (notificationTimer.current) {
-        clearTimeout(notificationTimer.current)
-        notificationTimer.current = null
-      }
-    }
-  }, [])
 
   useEffect(() => {
     if (!window.electronAPI?.toggleSuggestionPanel) return
@@ -84,7 +56,6 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
   const handleEmojiClick = () => {
     setPanelOpen(prev => !prev)
     setHasUnread(false)
-    setNotificationVisible(false)
   }
 
   const handleClosePanel = () => {
@@ -95,7 +66,6 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
     await onDismiss()
     setPanelOpen(false)
     setHasUnread(false)
-    setNotificationVisible(false)
   }
 
   return (
@@ -110,11 +80,6 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
           {hasUnread && <span className="unread-dot" />}
         </button>
 
-        {notificationVisible && (
-          <div className="notification-bubble">
-            💬 Clippy has something to say
-          </div>
-        )}
         <div className="status-label">
           {state === 'sleeping' && 'Sleeping'}
           {state === 'thinking' && 'Analyzing...'}
@@ -253,19 +218,6 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
           border-radius: 999px;
           border: 2px solid rgba(255, 255, 255, 0.9);
           box-shadow: 0 0 8px rgba(255, 77, 79, 0.6);
-        }
-
-        .notification-bubble {
-          position: absolute;
-          top: 4px;
-          right: -8px;
-          background: #1d4ed8;
-          color: white;
-          font-size: 12px;
-          padding: 6px 10px;
-          border-radius: 999px;
-          box-shadow: 0 8px 20px rgba(29, 78, 216, 0.35);
-          white-space: nowrap;
         }
 
         .status-label {

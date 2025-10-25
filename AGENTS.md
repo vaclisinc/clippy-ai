@@ -42,7 +42,7 @@ npm run lint
 ### Multi-Agent System
 
 ```
-Screen Capture (15s interval)
+Screen Capture (1 fps → 15 frame window)
   ↓
 Quick Classifier (GPT-4o mini)
   ├─ "error" → Debug Agent
@@ -89,13 +89,13 @@ src/
 - Model: GPT-4o mini
 - Cost: ~$0.15 per 1M tokens
 - Purpose: Fast classification (error/idle/normal)
-- Runs every 15 seconds
+- Runs after each frame batch (default 15 frames captured at 1 fps)
 
 **Layer 2: Deep Analysis (only when needed)**
 - Model: Claude 3.5 Sonnet
 - Cost: ~$3 per 1M tokens
 - Purpose: Generate helpful suggestions
-- Only runs for error/idle events
+- Only runs for error/idle events and receives the full frame sequence
 
 ### 2. Agent Pattern
 
@@ -106,7 +106,7 @@ abstract class BaseAgent {
   protected client: OpenRouterClient
 
   abstract analyze(
-    screenshot: Screenshot,
+    frames: Screenshot[],
     context: Context
   ): Promise<AgentResponse>
 }
@@ -141,12 +141,14 @@ OPENROUTER_API_KEY=sk-or-...
 ANTHROPIC_API_KEY=sk-ant-...
 
 # Optional tuning
-SCREENSHOT_INTERVAL=15    # seconds between captures
+SCREENSHOT_INTERVAL=15    # frames per analysis window (1 frame captured per second)
 IDLE_THRESHOLD=180        # seconds before idle detection
 DEBUG=false               # enable verbose logging
 ```
 
 If both keys are present, Clippy will keep using OpenRouter (GPT-4o mini) for fast classifications and talk to Anthropic directly for deep suggestions. If only `ANTHROPIC_API_KEY` is set, Claude handles both phases.
+
+`SCREENSHOT_INTERVAL` now represents how many one-second frames to aggregate before triggering classification/analysis. For example, the default value `15` means Clippy watches a 15-second clip at 1 fps before making a decision.
 
 ## macOS Screen Recording Permission
 
@@ -183,14 +185,11 @@ Edit `src/renderer/components/SuggestionCard.tsx`:
 1. **Screenshot Resolution**: Currently reduced to 50% to save API costs
    - Adjust in `src/main/screen-capture.ts` `thumbnailSize`
 
-2. **Capture Interval**: Default 15 seconds
-   - Faster = more responsive but higher cost
-   - Slower = cheaper but may miss events
+2. **Frame Batching**: Captures 1 frame per second and batches `SCREENSHOT_INTERVAL` frames (default 15) before running classification/analysis
+   - Lower the batch size for faster reactions (more frequent model calls)
+   - Raise it to save tokens while still giving the AI time-series context
 
-3. **API Costs** (assuming 100 captures/hour):
-   - Classification: ~$0.01/hour
-   - Deep analysis (20% trigger rate): ~$0.06/hour
-   - Total: **~$0.07/hour** or **~$1.70/day**
+3. **API Costs**: Each analysis now sends all frames in the batch, so costs scale with both batch size and trigger rate. Keep an eye on OpenRouter/Anthropic dashboards when tuning.
 
 ## Debugging
 

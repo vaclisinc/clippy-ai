@@ -3,14 +3,15 @@ import type { AgentResponse, Context, Screenshot } from '../types'
 
 export class DebugAgent extends BaseAgent {
   async analyze(
-    screenshot: Screenshot,
+    frames: Screenshot[],
     context: Context
   ): Promise<AgentResponse> {
     console.log('[DebugAgent] 🔍 Analyzing screenshot for errors...')
     const contextStr = this.createContext(context)
+    const latestFrame = frames[frames.length - 1]
 
     const result = await this.client.analyze(
-      screenshot.buffer,
+      frames,
       contextStr,
       'debug'
     )
@@ -35,7 +36,7 @@ export class DebugAgent extends BaseAgent {
         title: '🔍 I noticed an error',
         content: result.suggestion,
         confidence: 0.8,
-        timestamp: Date.now()
+        timestamp: latestFrame?.timestamp || Date.now()
         // Note: actions removed because functions can't be serialized over IPC
         // Will implement actions in renderer side
       },
