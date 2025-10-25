@@ -158,7 +158,7 @@ src/
 └── types/             # TypeScript definitions
 ```
 
-See [CLAUDE.md](./CLAUDE.md) for detailed architecture documentation.
+See [AGENTS.md](./AGENTS.md) for detailed architecture documentation.
 
 ## 🔮 Future Ideas
 

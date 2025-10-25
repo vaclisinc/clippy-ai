@@ -208,7 +208,7 @@ For the 24-hour hackathon, focus on:
 
 ## 📚 Documentation
 
-- **CLAUDE.md** - Full technical documentation
+- **AGENTS.md** - Full technical documentation
 - **README.md** - Project overview and features
 - **HACKATHON_CHECKLIST.md** - 24-hour timeline and tips
 
@@ -224,4 +224,4 @@ Good luck building! 🐱✨
 
 ---
 
-**Questions or issues?** Check CLAUDE.md for detailed architecture docs.
+**Questions or issues?** Check AGENTS.md for detailed architecture docs.

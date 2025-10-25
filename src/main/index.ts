@@ -42,7 +42,7 @@ function createMainWindow() {
       console.log('[Main] Now try loading dev server in 3 seconds...')
 
       setTimeout(() => {
-        const devServerURL = 'http://localhost:5173'
+        const devServerURL = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173'
         console.log(`[Main] Loading dev server: ${devServerURL}`)
 
         mainWindow?.loadURL(devServerURL).catch(err => {
@@ -88,7 +88,10 @@ function createClippyWindow() {
   clippyWindow.setPosition(width - 350, height - 350)
 
   if (process.env.NODE_ENV === 'development') {
-    clippyWindow.loadURL('http://localhost:5173#/clippy')
+    const devServerURL = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173'
+    const clippyURL = `${devServerURL}#/clippy`
+    console.log(`[Clippy] Loading dev server: ${clippyURL}`)
+    clippyWindow.loadURL(clippyURL)
     clippyWindow.webContents.openDevTools({ mode: 'detach' }) // 分離 DevTools
   } else {
     clippyWindow.loadFile(join(__dirname, '../renderer/index.html'), {

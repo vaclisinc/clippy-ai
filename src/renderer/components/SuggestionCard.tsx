@@ -136,7 +136,7 @@ export default function SuggestionCard({
           background: #0051D5;
         }
       `}</style>
-    </motion.div>
+    </div>
   )
 }
 
