@@ -11,30 +11,30 @@ function App() {
   useEffect(() => {
     console.log('[App] Mounted, location:', location)
 
-    // Check if electronAPI exists
-    if (window.electronAPI) {
-      console.log('[App] electronAPI found')
-
-      // Listen for suggestions from main process
-      window.electronAPI.onSuggestion((newSuggestion: Suggestion) => {
-        console.log('[App] Received suggestion:', newSuggestion)
-        setSuggestion(newSuggestion)
-      })
-
-      // Report user activity on any interaction
-      const handleActivity = () => {
-        window.electronAPI.reportActivity()
-      }
-
-      window.addEventListener('mousemove', handleActivity)
-      window.addEventListener('keydown', handleActivity)
-
-      return () => {
-        window.removeEventListener('mousemove', handleActivity)
-        window.removeEventListener('keydown', handleActivity)
-      }
-    } else {
+    if (!window.electronAPI) {
       console.error('[App] electronAPI not found! Preload may not be working.')
+      return
+    }
+
+    console.log('[App] electronAPI found')
+
+    // Listen for suggestions from main process
+    window.electronAPI.onSuggestion((newSuggestion: Suggestion) => {
+      console.log('[App] Received suggestion:', newSuggestion)
+      setSuggestion(newSuggestion)
+    })
+
+    // Report user activity on any interaction
+    const handleActivity = () => {
+      window.electronAPI.reportActivity()
+    }
+
+    window.addEventListener('mousemove', handleActivity)
+    window.addEventListener('keydown', handleActivity)
+
+    return () => {
+      window.removeEventListener('mousemove', handleActivity)
+      window.removeEventListener('keydown', handleActivity)
     }
   }, [location])
 
@@ -46,7 +46,12 @@ function App() {
   // Route based on hash
   if (location === '/clippy') {
     console.log('[App] Rendering Clippy component')
-    return <Clippy />
+    return (
+      <Clippy
+        suggestion={suggestion}
+        onDismiss={handleDismiss}
+      />
+    )
   }
 
   console.log('[App] Rendering main app')

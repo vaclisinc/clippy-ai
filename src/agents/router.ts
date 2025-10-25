@@ -13,10 +13,8 @@ export class AgentRouter {
   private client: OpenRouterClient
   private debugAgent: DebugAgent
   private learningAgent: LearningAgent
-  private config: Config
 
   constructor(config: Config) {
-    this.config = config
     this.client = new OpenRouterClient(config)
     this.debugAgent = new DebugAgent(this.client)
     this.learningAgent = new LearningAgent(this.client, config)

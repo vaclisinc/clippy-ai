@@ -1,23 +1,72 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { Suggestion } from '../../types'
 
 type ClippyState = 'sleeping' | 'thinking' | 'suggesting'
 
-export default function Clippy() {
+interface ClippyProps {
+  suggestion: Suggestion | null
+  onDismiss: () => Promise<void> | void
+}
+
+export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
   const [state, setState] = useState<ClippyState>('sleeping')
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [hasUnread, setHasUnread] = useState(false)
+  const [notificationVisible, setNotificationVisible] = useState(false)
+  const notificationTimer = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
-    console.log('[Clippy] Component mounted')
+    if (!window.electronAPI) return
 
-    if (window.electronAPI) {
-      console.log('[Clippy] electronAPI found, setting up listener')
-      window.electronAPI.onClippyState((newState: string) => {
-        console.log('[Clippy] State changed to:', newState)
-        setState(newState as ClippyState)
-      })
+    window.electronAPI.onClippyState((newState: string) => {
+      setState((newState as ClippyState) || 'sleeping')
+    })
+  }, [])
+
+  useEffect(() => {
+    if (suggestion) {
+      if (panelOpen) {
+        setHasUnread(false)
+        setNotificationVisible(false)
+      } else {
+        setHasUnread(true)
+        setNotificationVisible(true)
+      }
+
+      if (notificationTimer.current) {
+        clearTimeout(notificationTimer.current)
+        notificationTimer.current = null
+      }
+
+      notificationTimer.current = setTimeout(() => {
+        setNotificationVisible(false)
+        notificationTimer.current = null
+      }, 4000)
     } else {
-      console.error('[Clippy] electronAPI not found!')
+      if (notificationTimer.current) {
+        clearTimeout(notificationTimer.current)
+        notificationTimer.current = null
+      }
+
+      setPanelOpen(false)
+      setHasUnread(false)
+      setNotificationVisible(false)
+    }
+  }, [suggestion, panelOpen])
+
+  useEffect(() => {
+    return () => {
+      if (notificationTimer.current) {
+        clearTimeout(notificationTimer.current)
+        notificationTimer.current = null
+      }
     }
   }, [])
+
+  useEffect(() => {
+    if (!window.electronAPI?.toggleSuggestionPanel) return
+    window.electronAPI.toggleSuggestionPanel(panelOpen)
+  }, [panelOpen])
 
   const getEmoji = () => {
     switch (state) {
@@ -32,60 +81,339 @@ export default function Clippy() {
     }
   }
 
+  const handleEmojiClick = () => {
+    setPanelOpen(prev => !prev)
+    setHasUnread(false)
+    setNotificationVisible(false)
+  }
+
+  const handleClosePanel = () => {
+    setPanelOpen(false)
+  }
+
+  const handleDismissClick = async () => {
+    await onDismiss()
+    setPanelOpen(false)
+    setHasUnread(false)
+    setNotificationVisible(false)
+  }
+
   return (
-    <div className="clippy-container">
-      <div
-        className={`clippy clippy-${state}`}
-        style={{
-          fontSize: '120px',
-          cursor: 'pointer',
-          userSelect: 'none'
-        }}
-      >
-        {getEmoji()}
+    <div className={`clippy-shell ${panelOpen ? 'is-open' : ''}`}>
+      <div className="emoji-section">
+        <button
+          className={`emoji-button clippy-${state}`}
+          onClick={handleEmojiClick}
+          title={suggestion ? '點我查看建議' : '目前沒有新建議'}
+        >
+          <span className="emoji">{getEmoji()}</span>
+          {hasUnread && <span className="unread-dot" />}
+        </button>
+
+        {notificationVisible && (
+          <div className="notification-bubble">
+            💬 Clippy 有話要說
+          </div>
+        )}
+        <div className="status-label">
+          {state === 'sleeping' && '休息中'}
+          {state === 'thinking' && '分析中...'}
+          {state === 'suggesting' && '有新建議'}
+        </div>
       </div>
 
+      {panelOpen && (
+        <div className="suggestion-panel">
+          <div className="panel-header">
+            <div>
+              <p className="panel-type">
+                {suggestion ? suggestion.type.toUpperCase() : 'CLIPPY AI'}
+              </p>
+              <h3>{suggestion ? suggestion.title : '目前沒有建議'}</h3>
+            </div>
+
+            <button className="panel-close" onClick={handleClosePanel}>
+              ✕
+            </button>
+          </div>
+
+          <div className="panel-body">
+            {suggestion ? (
+              <div
+                className="markdown"
+                dangerouslySetInnerHTML={{
+                  __html: formatMarkdown(suggestion.content)
+                }}
+              />
+            ) : (
+              <p className="empty-message">目前沒有新的提示，等一下再看看吧！</p>
+            )}
+          </div>
+
+          <div className="panel-actions">
+            {suggestion ? (
+              <button className="primary" onClick={handleDismissClick}>
+                收到，謝了！👍
+              </button>
+            ) : (
+              <button className="secondary" onClick={handleClosePanel}>
+                好的
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <style>{`
-        .clippy-container {
+        .clippy-shell {
+          position: relative;
           display: flex;
           align-items: center;
           justify-content: center;
           width: 100%;
           height: 100%;
+          padding: 12px;
+          box-sizing: border-box;
           background: transparent;
+          color: #1f1f1f;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }
 
-        .clippy {
-          filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
+        .clippy-shell.is-open {
+          justify-content: flex-start;
+          background: rgba(249, 249, 249, 0.92);
+          backdrop-filter: blur(18px);
+          border-radius: 20px;
+          box-shadow: 0 12px 40px rgba(15, 23, 42, 0.25);
+        }
+
+        .emoji-section {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          width: 100%;
+        }
+
+        .clippy-shell.is-open .emoji-section {
+          width: 120px;
+          flex-shrink: 0;
+          border-right: 1px solid rgba(0, 0, 0, 0.08);
+          padding-right: 12px;
+          margin-right: 12px;
+        }
+
+        .emoji-button {
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 96px;
+          height: 96px;
+          border-radius: 48px;
+          border: none;
+          background: rgba(255, 255, 255, 0.8);
+          cursor: pointer;
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.2);
+        }
+
+        .emoji-button:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 16px 38px rgba(15, 23, 42, 0.24);
+        }
+
+        .emoji {
+          font-size: 64px;
+          line-height: 1;
+          user-select: none;
         }
 
         .clippy-sleeping {
-          animation: breathing 2s ease-in-out infinite;
+          animation: breathing 2.6s ease-in-out infinite;
         }
 
         .clippy-thinking {
-          animation: wiggle 0.5s ease-in-out infinite;
+          animation: wiggle 0.8s ease-in-out infinite;
         }
 
         .clippy-suggesting {
           animation: pulse 0.6s ease-in-out 3;
         }
 
+        .unread-dot {
+          position: absolute;
+          top: 14px;
+          right: 16px;
+          width: 14px;
+          height: 14px;
+          background: #ff4d4f;
+          border-radius: 999px;
+          border: 2px solid rgba(255, 255, 255, 0.9);
+          box-shadow: 0 0 8px rgba(255, 77, 79, 0.6);
+        }
+
+        .notification-bubble {
+          position: absolute;
+          top: 4px;
+          right: -8px;
+          background: #1d4ed8;
+          color: white;
+          font-size: 12px;
+          padding: 6px 10px;
+          border-radius: 999px;
+          box-shadow: 0 8px 20px rgba(29, 78, 216, 0.35);
+          white-space: nowrap;
+        }
+
+        .status-label {
+          font-size: 12px;
+          color: rgba(15, 23, 42, 0.65);
+          font-weight: 500;
+        }
+
+        .suggestion-panel {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          background: rgba(255, 255, 255, 0.92);
+          border-radius: 16px;
+          padding: 16px;
+          box-sizing: border-box;
+          box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
+        }
+
+        .panel-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .panel-type {
+          margin: 0 0 4px 0;
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          color: rgba(15, 23, 42, 0.45);
+        }
+
+        .panel-header h3 {
+          margin: 0;
+          font-size: 18px;
+          color: rgba(15, 23, 42, 0.92);
+        }
+
+        .panel-close {
+          border: none;
+          background: transparent;
+          font-size: 18px;
+          line-height: 1;
+          cursor: pointer;
+          color: rgba(15, 23, 42, 0.45);
+        }
+
+        .panel-close:hover {
+          color: rgba(15, 23, 42, 0.85);
+        }
+
+        .panel-body {
+          flex: 1;
+          overflow-y: auto;
+          margin-bottom: 16px;
+        }
+
+        .markdown {
+          font-size: 14px;
+          line-height: 1.6;
+          color: rgba(15, 23, 42, 0.8);
+        }
+
+        .markdown code {
+          background: rgba(15, 23, 42, 0.08);
+          padding: 2px 6px;
+          border-radius: 6px;
+          font-family: 'Menlo', 'Monaco', monospace;
+          font-size: 13px;
+        }
+
+        .markdown pre {
+          background: rgba(15, 23, 42, 0.08);
+          padding: 12px;
+          border-radius: 10px;
+          overflow-x: auto;
+        }
+
+        .empty-message {
+          margin: 0;
+          font-size: 14px;
+          color: rgba(15, 23, 42, 0.6);
+        }
+
+        .panel-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+
+        .primary,
+        .secondary {
+          border: none;
+          border-radius: 10px;
+          padding: 10px 16px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .primary {
+          background: linear-gradient(135deg, #2563eb, #4f46e5);
+          color: white;
+          box-shadow: 0 10px 24px rgba(79, 70, 229, 0.35);
+        }
+
+        .primary:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 14px 28px rgba(79, 70, 229, 0.45);
+        }
+
+        .secondary {
+          background: rgba(148, 163, 184, 0.2);
+          color: rgba(30, 41, 59, 0.9);
+        }
+
+        .secondary:hover {
+          transform: translateY(-1px);
+          background: rgba(148, 163, 184, 0.3);
+        }
+
         @keyframes breathing {
           0%, 100% { transform: scale(1); }
-          50% { transform: scale(0.95); }
+          50% { transform: scale(0.94); }
         }
 
         @keyframes wiggle {
-          0%, 100% { transform: rotate(-5deg); }
-          50% { transform: rotate(5deg); }
+          0%, 100% { transform: rotate(-4deg); }
+          50% { transform: rotate(4deg); }
         }
 
         @keyframes pulse {
           0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.1); }
+          50% { transform: scale(1.08); }
         }
       `}</style>
     </div>
   )
+}
+
+function formatMarkdown(text: string): string {
+  return text
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>')
 }

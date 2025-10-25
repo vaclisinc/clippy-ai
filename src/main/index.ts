@@ -1,13 +1,18 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Tray,
+  Menu,
+  nativeImage,
+  screen
+} from 'electron'
 import { join } from 'path'
 import { writeFileSync } from 'fs'
 import { ScreenCapture } from './screen-capture'
 import { ContextDB } from '../lib/db'
 import { AgentRouter } from '../agents/router'
 import { loadConfig } from './config'
-import type { Suggestion } from '../types'
-
-let mainWindow: BrowserWindow | null = null
 let clippyWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
@@ -17,65 +22,38 @@ let router: AgentRouter
 let captureInterval: NodeJS.Timeout | null = null
 let config: any
 
-function createMainWindow() {
-  mainWindow = new BrowserWindow({
-    width: 800,  // 增大寬度方便開發
-    height: 600,
-    show: true,  // 開發時顯示主窗口
-    frame: true, // 開發時顯示邊框方便移動
-    transparent: false, // 開發時不透明
-    alwaysOnTop: false,  // 開發時不置頂
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      nodeIntegration: false,
-      contextIsolation: true
-    }
-  })
+const WINDOW_MARGIN = 24
+const COLLAPSED_SIZE = { width: 160, height: 160 }
+const EXPANDED_SIZE = { width: 420, height: 520 }
 
-  if (process.env.NODE_ENV === 'development') {
-    // Try loading test HTML first to verify window works
-    const testPath = join(__dirname, '../../test.html')
-    console.log(`[Main] Loading test file: ${testPath}`)
+function positionClippyWindow(window: BrowserWindow, size = COLLAPSED_SIZE) {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  const x = width - size.width - WINDOW_MARGIN
+  const y = height - size.height - WINDOW_MARGIN
 
-    mainWindow.loadFile(testPath).then(() => {
-      console.log('[Main] ✅ Test file loaded! Window is working.')
-      console.log('[Main] Now try loading dev server in 3 seconds...')
-
-      setTimeout(() => {
-        const devServerURL = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173'
-        console.log(`[Main] Loading dev server: ${devServerURL}`)
-
-        mainWindow?.loadURL(devServerURL).catch(err => {
-          console.error('[Main] ❌ Failed to load dev server:', err)
-          console.error('[Main] Dev server might not be running!')
-        })
-      }, 3000)
-    })
-
-    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-      console.error('[Main] ❌ Failed to load page:', errorCode, errorDescription)
-    })
-
-    mainWindow.webContents.on('did-finish-load', () => {
-      console.log('[Main] ✅ Page loaded successfully')
-    })
-
-    mainWindow.webContents.openDevTools({ mode: 'detach' }) // 分離 DevTools
-  } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-  }
+  window.setBounds(
+    {
+      x,
+      y,
+      width: size.width,
+      height: size.height
+    },
+    false
+  )
 }
 
 function createClippyWindow() {
   clippyWindow = new BrowserWindow({
-    width: 300,  // 增大方便開發
-    height: 300,
+    width: COLLAPSED_SIZE.width,
+    height: COLLAPSED_SIZE.height,
     show: true,
-    frame: true,  // 開發時顯示邊框
-    transparent: false,  // 開發時不透明
+    frame: false,
+    transparent: true,
     alwaysOnTop: true,
-    hasShadow: true,
-    resizable: true,  // 開發時可調整大小
+    hasShadow: false,
+    resizable: false,
+    skipTaskbar: true,
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
@@ -83,16 +61,13 @@ function createClippyWindow() {
     }
   })
 
-  // Position in bottom-right corner
-  const { width, height } = require('electron').screen.getPrimaryDisplay().workAreaSize
-  clippyWindow.setPosition(width - 350, height - 350)
+  positionClippyWindow(clippyWindow, COLLAPSED_SIZE)
 
   if (process.env.NODE_ENV === 'development') {
     const devServerURL = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173'
     const clippyURL = `${devServerURL}#/clippy`
     console.log(`[Clippy] Loading dev server: ${clippyURL}`)
     clippyWindow.loadURL(clippyURL)
-    clippyWindow.webContents.openDevTools({ mode: 'detach' }) // 分離 DevTools
   } else {
     clippyWindow.loadFile(join(__dirname, '../renderer/index.html'), {
       hash: 'clippy'
@@ -187,17 +162,13 @@ async function startScreenMonitoring() {
 
       try {
         // Send suggestion to renderer
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('suggestion', serializableSuggestion)
-          mainWindow.show() // Show main window when there's a suggestion
-          console.log('[Monitor] ✅ Suggestion sent to main window')
-        } else {
-          console.log('[Monitor] ❌ Main window not available')
-        }
-
         if (clippyWindow && !clippyWindow.isDestroyed()) {
+          clippyWindow.show()
+          clippyWindow.webContents.send('suggestion', serializableSuggestion)
           clippyWindow.webContents.send('clippy-state', 'suggesting')
-          console.log('[Monitor] ✅ State sent to Clippy window')
+          console.log('[Monitor] ✅ Suggestion sent to Clippy window')
+        } else {
+          console.log('[Monitor] ❌ Clippy window not available')
         }
       } catch (error) {
         console.error('[Monitor] ❌ Error sending to renderer:', error)
@@ -233,7 +204,6 @@ app.whenReady().then(async () => {
   }
 
   // Create windows first (so user sees something)
-  createMainWindow()
   createClippyWindow()
   createTray()
 
@@ -279,10 +249,16 @@ app.on('before-quit', () => {
 
 // IPC Handlers
 ipcMain.handle('dismiss-suggestion', () => {
-  mainWindow?.hide()
   clippyWindow?.webContents.send('clippy-state', 'sleeping')
 })
 
 ipcMain.handle('user-activity', () => {
   db.updateLastActivity()
+})
+
+ipcMain.handle('toggle-suggestion-panel', (_event, open: boolean) => {
+  if (!clippyWindow) return
+
+  const targetSize = open ? EXPANDED_SIZE : COLLAPSED_SIZE
+  positionClippyWindow(clippyWindow, targetSize)
 })
