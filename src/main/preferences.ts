@@ -4,7 +4,7 @@ import { dirname, join } from 'path'
 import type { UserPreferences } from '../types'
 
 const DEFAULT_PREFERENCES: UserPreferences = {
-  captureMode: 'sequence',
+  captureMode: 'single',
   pet: 'clippy'
 }
 

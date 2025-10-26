@@ -20,7 +20,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dismissSuggestion: () => ipcRenderer.invoke('dismiss-suggestion'),
   reportActivity: () => ipcRenderer.invoke('user-activity'),
   toggleSuggestionPanel: (open: boolean) =>
-    ipcRenderer.invoke('toggle-suggestion-panel', open)
+    ipcRenderer.invoke('toggle-suggestion-panel', open),
+  moveClippyWindow: (deltaX: number, deltaY: number) =>
+    ipcRenderer.invoke('move-clippy-window', { deltaX, deltaY })
 })
 
 // TypeScript declaration for the exposed API
@@ -36,6 +38,7 @@ declare global {
       dismissSuggestion: () => Promise<void>
       reportActivity: () => Promise<void>
       toggleSuggestionPanel: (open: boolean) => Promise<void>
+      moveClippyWindow: (deltaX: number, deltaY: number) => Promise<void>
     }
   }
 }

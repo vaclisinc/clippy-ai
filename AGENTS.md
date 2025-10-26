@@ -163,7 +163,7 @@ On first run, macOS will request screen recording permission:
 
 - Access from the menu bar icon → **Control Panel** (creates a separate Electron window).
 - Users can switch between `Cinematic Timeline` (1 fps clips) and `Quick Snapshot` capture modes.
-- Pet selector lets them swap the on-screen companion (emoji-based today, swap in animated sprites later).
+- Pet selector currently offers the minimal emoji bulb or the OG Clippy PNG sprite; feel free to drop more assets in `resources/` and follow the same pattern. Drag Clippy around using the ⠿ handle that sits next to the settings gear.
 - Preference changes persist via a JSON file under `userData/preferences.json` and broadcast to both renderer windows.
 
 ### Adding a New Agent

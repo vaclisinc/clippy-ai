@@ -6,26 +6,24 @@ interface ControlPanelProps {
 }
 
 const DEFAULTS: UserPreferences = {
-  captureMode: 'sequence',
+  captureMode: 'single',
   pet: 'clippy'
 }
 
 const CAPTURE_MODE_OPTIONS: Array<{
   id: CaptureMode
   title: string
-  description: string
+  blurb: string
 }> = [
   {
     id: 'sequence',
-    title: 'Cinematic Timeline (15s)',
-    description:
-      'Clippy records one frame per second and sends a 15-frame clip to the AI. Best for tracking fast-changing debugging sessions.'
+    title: 'Timeline (15s)',
+    blurb: '1 fps clip • richer context'
   },
   {
     id: 'single',
     title: 'Quick Snapshot',
-    description:
-      'Captures a single screenshot each interval (based on .env SCREENSHOT_INTERVAL). Lower cost, good for calm workflows.'
+    blurb: 'Single frame • minimal cost'
   }
 ]
 
@@ -35,10 +33,8 @@ const PET_OPTIONS: Array<{
   emoji: string
   tagline: string
 }> = [
-  { id: 'clippy', label: 'Classic Bulb', emoji: '💡', tagline: 'Original minimal helper' },
-  { id: 'cat', label: 'Curious Cat', emoji: '😺', tagline: 'Perches quietly until action calls' },
-  { id: 'dog', label: 'Friendly Pup', emoji: '🐶', tagline: 'Tail-wagging debugging buddy' },
-  { id: 'bunny', label: 'Bouncy Bunny', emoji: '🐰', tagline: 'Energetic learner for long reads' }
+  { id: 'clippy', label: 'Minimal Bulb', emoji: '💡', tagline: 'Subtle emoji companion' },
+  { id: 'clippy-classic', label: 'OG Clippy', emoji: '📎', tagline: 'Classic paperclip with animations' }
 ]
 
 export default function ControlPanel({
@@ -61,203 +57,126 @@ export default function ControlPanel({
 
   return (
     <div className="control-panel">
-      <header>
-        <h1>Clippy Control Center</h1>
-        <p>Choose how Clippy watches your screen and which companion keeps you company.</p>
+      <header className="panel-header">
+        <h1>Settings</h1>
       </header>
 
-      <section>
-        <h2>Capture Style</h2>
-        <div className="card-grid">
+      <section className="section">
+        <label className="label">Capture</label>
+        <div className="option-grid">
           {CAPTURE_MODE_OPTIONS.map(option => (
             <button
               key={option.id}
               type="button"
-              className={`card ${current.captureMode === option.id ? 'is-active' : ''}`}
+              className={`option ${current.captureMode === option.id ? 'active' : ''}`}
               onClick={() => handleCaptureModeChange(option.id)}
             >
-              <div className="card-header">
-                <div className="radio">
-                  <span className="dot" />
-                </div>
-                <span>{option.title}</span>
-              </div>
-              <p>{option.description}</p>
+              <span className="option-title">{option.title}</span>
             </button>
           ))}
         </div>
       </section>
 
-      <section>
-        <h2>Choose Your Pet</h2>
-        <div className="pet-grid">
+      <section className="section">
+        <label className="label">Companion</label>
+        <div className="option-grid">
           {PET_OPTIONS.map(pet => (
             <button
               type="button"
               key={pet.id}
-              className={`pet ${current.pet === pet.id ? 'is-active' : ''}`}
+              className={`option ${current.pet === pet.id ? 'active' : ''}`}
               onClick={() => handlePetChange(pet.id)}
             >
               <span className="pet-emoji">{pet.emoji}</span>
-              <div className="pet-info">
-                <strong>{pet.label}</strong>
-                <span>{pet.tagline}</span>
-              </div>
+              <span className="option-title">{pet.label}</span>
             </button>
           ))}
         </div>
       </section>
 
-      <footer>
-        <p className="hint">
-          Changes apply instantly. Clippy will restart screen capture when you switch modes.
-        </p>
-      </footer>
-
       <style>{`
+        * {
+          box-sizing: border-box;
+        }
+
         .control-panel {
-          min-height: 100vh;
+          height: 100vh;
           padding: 32px 28px;
-          background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
-          color: #0f172a;
+          background: #ffffff;
+          color: #0a0a0a;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        }
-
-        header h1 {
-          margin: 0;
-          font-size: 28px;
-          font-weight: 700;
-        }
-
-        header p {
-          margin: 8px 0 24px;
-          color: rgba(15, 23, 42, 0.7);
-        }
-
-        section {
-          margin-bottom: 32px;
-        }
-
-        section h2 {
-          font-size: 18px;
-          margin-bottom: 12px;
-          font-weight: 600;
-        }
-
-        .card-grid {
-          display: grid;
-          gap: 12px;
-        }
-
-        .card {
-          border-radius: 16px;
-          border: 1px solid rgba(99, 102, 241, 0.12);
-          background: rgba(255, 255, 255, 0.85);
-          padding: 16px;
-          text-align: left;
-          cursor: pointer;
-          transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-        }
-
-        .card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 12px 24px rgba(99, 102, 241, 0.12);
-        }
-
-        .card.is-active {
-          border-color: rgba(79, 70, 229, 0.6);
-          box-shadow: 0 16px 28px rgba(79, 70, 229, 0.18);
-        }
-
-        .card-header {
           display: flex;
-          align-items: center;
-          gap: 12px;
-          font-weight: 600;
-          margin-bottom: 8px;
+          flex-direction: column;
+          gap: 32px;
         }
 
-        .card p {
+        .panel-header {
+          padding-bottom: 20px;
+          border-bottom: 1px solid #e5e5e5;
+        }
+
+        .panel-header h1 {
           margin: 0;
-          color: rgba(15, 23, 42, 0.65);
-          font-size: 14px;
-          line-height: 1.5;
+          font-size: 20px;
+          font-weight: 500;
+          color: #0a0a0a;
+          letter-spacing: -0.01em;
         }
 
-        .radio {
-          width: 18px;
-          height: 18px;
-          border-radius: 999px;
-          border: 2px solid rgba(79, 70, 229, 0.4);
+        .section {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .label {
+          font-size: 13px;
+          font-weight: 500;
+          color: #666;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+
+        .option-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+
+        .option {
           display: flex;
           align-items: center;
           justify-content: center;
-          position: relative;
-        }
-
-        .card.is-active .radio {
-          border-color: rgba(79, 70, 229, 1);
-        }
-
-        .card.is-active .radio .dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 999px;
-          background: rgba(79, 70, 229, 1);
-        }
-
-        .pet-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-          gap: 12px;
-        }
-
-        .pet {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          border-radius: 16px;
-          border: 1px solid rgba(14, 165, 233, 0.18);
-          background: rgba(255, 255, 255, 0.85);
-          padding: 12px 14px;
+          gap: 8px;
+          padding: 16px 20px;
+          border-radius: 8px;
+          border: 1px solid #e5e5e5;
+          background: #ffffff;
+          color: #0a0a0a;
           cursor: pointer;
-          transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+          transition: all 0.15s ease;
+          font-size: 14px;
+          font-weight: 400;
         }
 
-        .pet:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 10px 22px rgba(14, 165, 233, 0.15);
+        .option:hover {
+          border-color: #0a0a0a;
         }
 
-        .pet.is-active {
-          border-color: rgba(14, 165, 233, 0.55);
-          box-shadow: 0 14px 26px rgba(14, 165, 233, 0.22);
+        .option.active {
+          border-color: #0a0a0a;
+          background: #0a0a0a;
+          color: #ffffff;
+        }
+
+        .option-title {
+          font-size: 14px;
+          font-weight: 400;
         }
 
         .pet-emoji {
-          font-size: 32px;
-        }
-
-        .pet-info {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 4px;
-        }
-
-        .pet-info strong {
-          font-size: 15px;
-        }
-
-        .pet-info span {
-          font-size: 12px;
-          color: rgba(15, 23, 42, 0.6);
-        }
-
-        footer .hint {
-          margin: 0;
-          font-size: 12px;
-          color: rgba(15, 23, 42, 0.55);
+          font-size: 18px;
+          line-height: 1;
         }
       `}</style>
     </div>

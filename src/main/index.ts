@@ -42,9 +42,15 @@ let frameBatchSize = 15
 let frameBatchCount = 0
 let frameCaptureIntervalMs = FRAME_CAPTURE_INTERVAL_MS
 let clippyBounds: { x: number; y: number; width: number; height: number } | null = null
+const VALID_PETS = new Set(['clippy', 'clippy-classic'])
+let suggestionPanelOpen = false
 
 function applyPreferences(next: UserPreferences, options: { restart?: boolean } = {}) {
-  preferences = next
+  preferences = { ...next }
+
+  if (!VALID_PETS.has(preferences.pet)) {
+    preferences.pet = 'clippy'
+  }
 
   if (preferences.captureMode === 'sequence') {
     frameCaptureIntervalMs = FRAME_CAPTURE_INTERVAL_MS
@@ -141,6 +147,28 @@ function setClippyBounds(
   clippyWindow.setBounds(clippyBounds, false)
 }
 
+function moveClippyBy(deltaX: number, deltaY: number) {
+  if (!clippyWindow || clippyWindow.isDestroyed()) return
+
+  if (!clippyBounds) {
+    clippyBounds = clippyWindow.getBounds()
+  }
+
+  const width = clippyBounds?.width ?? COLLAPSED_SIZE.width
+  const height = clippyBounds?.height ?? COLLAPSED_SIZE.height
+  const nextX = (clippyBounds?.x ?? 0) + deltaX
+  const nextY = (clippyBounds?.y ?? 0) + deltaY
+  const clamped = clampToScreen(nextX, nextY, width, height)
+  clippyBounds = {
+    x: Math.round(clamped.x),
+    y: Math.round(clamped.y),
+    width: Math.round(width),
+    height: Math.round(height)
+  }
+
+  clippyWindow.setBounds(clippyBounds, false)
+}
+
 function createClippyWindow() {
   clippyWindow = new BrowserWindow({
     width: COLLAPSED_SIZE.width,
@@ -198,7 +226,7 @@ function openSettingsWindow() {
     resizable: false,
     maximizable: false,
     title: 'Clippy Control Center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
@@ -278,6 +306,12 @@ async function startScreenMonitoring() {
   let frameCount = 0
 
   captureInterval = setInterval(async () => {
+    // Skip capture if suggestion panel is open
+    if (suggestionPanelOpen) {
+      console.log('[Monitor] ⏸️  Skipping capture - suggestion panel is open')
+      return
+    }
+
     frameCount++
     console.log(`\n[Monitor] 📸 Capturing frame #${frameCount} at ${new Date().toLocaleTimeString()}`)
 
@@ -502,6 +536,9 @@ ipcMain.handle('user-activity', () => {
 ipcMain.handle('toggle-suggestion-panel', (_event, open: boolean) => {
   if (!clippyWindow) return
 
+  suggestionPanelOpen = open
+  console.log(`[Monitor] Suggestion panel ${open ? 'opened' : 'closed'} - ${open ? 'pausing' : 'resuming'} capture`)
+
   const targetSize = open ? EXPANDED_SIZE : COLLAPSED_SIZE
   setClippyBounds(targetSize)
 })
@@ -519,3 +556,10 @@ ipcMain.handle('set-preferences', (_event, partial: Partial<UserPreferences>) =>
 ipcMain.handle('open-control-panel', () => {
   openSettingsWindow()
 })
+
+ipcMain.handle(
+  'move-clippy-window',
+  (_event, { deltaX, deltaY }: { deltaX: number; deltaY: number }) => {
+    moveClippyBy(deltaX, deltaY)
+  }
+)
