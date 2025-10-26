@@ -9,8 +9,10 @@ import {
 } from 'electron'
 import { join } from 'path'
 import { writeFileSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { ScreenCapture } from './screen-capture'
 import { ContextDB } from '../lib/db'
+import { VectorDB } from '../lib/vector-db'
 import { AgentRouter } from '../agents/router'
 import { loadConfig } from './config'
 import { preferencesStore } from './preferences'
@@ -21,6 +23,7 @@ let tray: Tray | null = null
 
 let screenCapture: ScreenCapture
 let db: ContextDB
+let vectorDB: VectorDB
 let router: AgentRouter
 let captureInterval: NodeJS.Timeout | null = null
 let config: Config
@@ -233,8 +236,11 @@ function openSettingsWindow() {
     show: false,
     resizable: false,
     maximizable: false,
+    minimizable: false,
+    closable: true,  // 確保可以關閉
     title: 'Clippy Control Center',
     backgroundColor: '#ffffff',
+    titleBarStyle: 'default',  // 顯示標準標題欄和關閉按鈕
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
@@ -281,6 +287,58 @@ function createTray() {
 
   tray.setContextMenu(contextMenu)
   tray.setToolTip('Clippy AI')
+}
+
+async function saveScreenshotToVectorDB(
+  screenshot: Screenshot,
+  filePath: string,
+  classification: string
+) {
+  if (!router) return
+
+  try {
+    // Generate description using AI (works regardless of VectorDB)
+    const description = await router['client'].describeScreenshot(screenshot)
+
+    if (!description) {
+      console.log('[Storage] No description generated, skipping')
+      return
+    }
+
+    const screenshotId = randomUUID()
+
+    // Always save metadata to SQL database
+    db.addScreenshot({
+      id: screenshotId,
+      filePath,
+      timestamp: screenshot.timestamp || Date.now(),
+      classification: classification as any,
+      description,
+      width: screenshot.width,
+      height: screenshot.height
+    })
+
+    // Try to save to VectorDB if available
+    if (vectorDB) {
+      try {
+        await vectorDB.addScreenshot(screenshot, description, {
+          filePath,
+          timestamp: screenshot.timestamp || Date.now(),
+          classification: classification as any,
+          width: screenshot.width,
+          height: screenshot.height
+        })
+        console.log(`[Storage] ✅ Saved to SQLite + VectorDB: "${description.substring(0, 60)}..."`)
+      } catch (vectorError: any) {
+        console.warn('[Storage] ⚠️  VectorDB save failed, SQLite only:', vectorError?.message || vectorError)
+        console.log(`[Storage] ✅ Saved to SQLite: "${description.substring(0, 60)}..."`)
+      }
+    } else {
+      console.log(`[Storage] ✅ Saved to SQLite: "${description.substring(0, 60)}..."`)
+    }
+  } catch (error) {
+    console.error('[Storage] Save failed:', error)
+  }
 }
 
 function stopScreenMonitoring() {
@@ -389,6 +447,18 @@ async function startScreenMonitoring() {
     // Route to appropriate agent
     const response = await router.route(framesForAnalysis, context)
 
+    // ALWAYS save screenshot to VectorDB with description (async, non-blocking)
+    // This creates our semantic memory regardless of whether Clippy assists
+    // Note: Also saves to SQLite even if VectorDB is unavailable
+    const classification = response.suggestion?.type || response.classification || 'normal'
+    saveScreenshotToVectorDB(
+      latestFrame,  // Already declared above on line 420
+      screenshotPath,
+      classification
+    ).catch(err => {
+      console.error('[Monitor] Failed to save screenshot metadata:', err)
+    })
+
     if (response.shouldAssist && response.suggestion) {
       console.log('[Monitor] 💡 Got suggestion!')
       console.log(`[Monitor] Type: ${response.suggestion.type}`)
@@ -494,6 +564,19 @@ app.whenReady().then(async () => {
     try {
       screenCapture = new ScreenCapture()
       db = new ContextDB()
+
+      // Initialize VectorDB (optional - requires ChromaDB server at localhost:8000)
+      try {
+        vectorDB = new VectorDB()
+        await vectorDB.initialize()
+        console.log('[Clippy AI] ✅ VectorDB initialized successfully')
+      } catch (error) {
+        console.warn('[Clippy AI] ⚠️  VectorDB unavailable (ChromaDB server not running)')
+        console.log('[Clippy AI] 💡 To enable semantic search: Run "chroma run" in a separate terminal')
+        console.log('[Clippy AI] 📝 Continuing with SQLite-only storage (descriptions still saved)')
+        vectorDB = null as any
+      }
+
       router = new AgentRouter(config)
 
       // Request screen capture permission
@@ -522,9 +605,12 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   stopScreenMonitoring()
   db?.close()
+  if (vectorDB) {
+    await vectorDB.close()
+  }
 })
 
 // IPC Handlers
@@ -571,3 +657,28 @@ ipcMain.handle(
     moveClippyBy(deltaX, deltaY)
   }
 )
+
+ipcMain.handle('get-screenshot-history', async (_event, limit: number = 50) => {
+  if (!db) return []
+  try {
+    const screenshots = db.getRecentScreenshots(limit)
+    return screenshots
+  } catch (error) {
+    console.error('[IPC] Failed to get screenshot history:', error)
+    return []
+  }
+})
+
+ipcMain.handle('search-screenshots', async (_event, query: string, limit: number = 10) => {
+  if (!vectorDB) {
+    console.warn('[IPC] VectorDB not available for semantic search')
+    return []
+  }
+  try {
+    const results = await vectorDB.searchSimilar(query, limit)
+    return results
+  } catch (error) {
+    console.error('[IPC] Search failed:', error)
+    return []
+  }
+})

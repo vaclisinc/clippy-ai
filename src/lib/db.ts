@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
-import type { Event, Context } from '../types'
+import type { Event, Context, ScreenshotMetadata } from '../types'
 
 export class ContextDB {
   private db: Database.Database
@@ -28,7 +28,20 @@ export class ContextDB {
         updated_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS screenshots (
+        id TEXT PRIMARY KEY,
+        file_path TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        classification TEXT NOT NULL,
+        description TEXT,
+        current_app TEXT,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_screenshots_timestamp ON screenshots(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_screenshots_classification ON screenshots(classification);
     `)
   }
 
@@ -103,6 +116,76 @@ export class ContextDB {
   updateLastActivity() {
     this.setContextValue('lastActivity', Date.now())
     this.setContextValue('idleTime', 0)
+  }
+
+  // Screenshot metadata operations
+  addScreenshot(metadata: ScreenshotMetadata) {
+    const stmt = this.db.prepare(`
+      INSERT INTO screenshots (id, file_path, timestamp, classification, description, current_app, width, height)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    stmt.run(
+      metadata.id,
+      metadata.filePath,
+      metadata.timestamp,
+      metadata.classification,
+      metadata.description || null,
+      metadata.currentApp || null,
+      metadata.width,
+      metadata.height
+    )
+  }
+
+  getScreenshot(id: string): ScreenshotMetadata | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM screenshots WHERE id = ?
+    `)
+
+    const row = stmt.get(id) as any
+
+    if (!row) return null
+
+    return {
+      id: row.id,
+      filePath: row.file_path,
+      timestamp: row.timestamp,
+      classification: row.classification,
+      description: row.description,
+      currentApp: row.current_app,
+      width: row.width,
+      height: row.height
+    }
+  }
+
+  getRecentScreenshots(limit = 10): ScreenshotMetadata[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM screenshots
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `)
+
+    const rows = stmt.all(limit) as any[]
+
+    return rows.map((row) => ({
+      id: row.id,
+      filePath: row.file_path,
+      timestamp: row.timestamp,
+      classification: row.classification,
+      description: row.description,
+      currentApp: row.current_app,
+      width: row.width,
+      height: row.height
+    }))
+  }
+
+  deleteOldScreenshots(olderThanTimestamp: number): number {
+    const stmt = this.db.prepare(`
+      DELETE FROM screenshots WHERE timestamp < ?
+    `)
+
+    const result = stmt.run(olderThanTimestamp)
+    return result.changes
   }
 
   close() {

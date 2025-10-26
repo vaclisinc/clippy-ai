@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChromaDB Viewer - Clippy AI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+        }
+
+        .controls {
+            padding: 20px 30px;
+            background: #f7fafc;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: #5a67d8;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 300px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .stats {
+            padding: 20px 30px;
+            background: #edf2f7;
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stat-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .stat-info h3 {
+            font-size: 24px;
+            color: #2d3748;
+        }
+
+        .stat-info p {
+            font-size: 12px;
+            color: #718096;
+            margin-top: 2px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .timeline {
+            position: relative;
+            padding-left: 40px;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 10px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .timeline-item {
+            position: relative;
+            margin-bottom: 30px;
+            background: #f7fafc;
+            border-radius: 8px;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+            transition: all 0.2s;
+        }
+
+        .timeline-item:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -42px;
+            top: 25px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: white;
+            border: 3px solid #667eea;
+        }
+
+        .timeline-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .timeline-time {
+            font-size: 14px;
+            color: #718096;
+            font-weight: 500;
+        }
+
+        .timeline-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-writing { background: #bee3f8; color: #2c5282; }
+        .badge-research { background: #c6f6d5; color: #22543d; }
+        .badge-error { background: #fed7d7; color: #742a2a; }
+        .badge-code { background: #e9d8fd; color: #44337a; }
+        .badge-idle { background: #feebc8; color: #7c2d12; }
+        .badge-normal { background: #e2e8f0; color: #2d3748; }
+
+        .timeline-description {
+            color: #2d3748;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+
+        .timeline-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 13px;
+            color: #718096;
+        }
+
+        .similarity {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #f0fff4;
+            color: #22543d;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #718096;
+        }
+
+        .empty-state svg {
+            width: 120px;
+            height: 120px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            border: 3px solid #e2e8f0;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #fed7d7;
+            color: #742a2a;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin: 20px 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 ChromaDB Viewer</h1>
+            <p>Clippy AI Screenshot History & Semantic Search</p>
+        </div>
+
+        <div class="controls">
+            <button class="btn" onclick="loadHistory()">🔄 Refresh</button>
+            <button class="btn" onclick="loadAll()">📋 Load All</button>
+            <div class="search-box">
+                <input
+                    type="text"
+                    id="searchInput"
+                    placeholder="🔍 Semantic search: e.g., 'error message', 'writing document'..."
+                    onkeypress="if(event.key==='Enter') searchScreenshots()"
+                >
+            </div>
+            <button class="btn" onclick="searchScreenshots()">🔎 Search</button>
+        </div>
+
+        <div class="stats" id="stats">
+            <div class="stat-item">
+                <div class="stat-icon" style="background: #bee3f8;">📸</div>
+                <div class="stat-info">
+                    <h3 id="totalCount">-</h3>
+                    <p>Total Screenshots</p>
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-icon" style="background: #c6f6d5;">🎯</div>
+                <div class="stat-info">
+                    <h3 id="collectionName">-</h3>
+                    <p>Collection Name</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="content">
+            <div id="loading" class="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Loading screenshots...</p>
+            </div>
+
+            <div id="error" class="error" style="display: none;"></div>
+
+            <div id="timeline" class="timeline"></div>
+
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <h3>No screenshots yet</h3>
+                <p>Start using Clippy AI to capture screenshots</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const CHROMADB_URL = 'http://localhost:8000';
+        const COLLECTION_NAME = 'screenshot-embeddings';
+
+        async function loadHistory() {
+            showLoading();
+            hideError();
+
+            try {
+                // Get collection using v2 API
+                const collectionsRes = await fetch(`${CHROMADB_URL}/api/v2/collections`);
+
+                if (!collectionsRes.ok) {
+                    throw new Error(`HTTP ${collectionsRes.status}: ${collectionsRes.statusText}`);
+                }
+
+                const collections = await collectionsRes.json();
+
+                const collection = collections.find(c => c.name === COLLECTION_NAME);
+
+                if (!collection) {
+                    showEmptyState();
+                    updateStats(0, 'Not found');
+                    return;
+                }
+
+                // Get items using v2 API
+                const countRes = await fetch(`${CHROMADB_URL}/api/v2/collections/${collection.id}/count`);
+                const countData = await countRes.json();
+                const count = countData.count || 0;
+
+                const itemsRes = await fetch(`${CHROMADB_URL}/api/v2/collections/${collection.id}/get`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        limit: 50,
+                        include: ['metadatas', 'documents']
+                    })
+                });
+
+                const data = await itemsRes.json();
+
+                updateStats(count, collection.name);
+                displayTimeline(data);
+
+            } catch (error) {
+                showError('Failed to load data: ' + error.message + '. Make sure ChromaDB is running on port 8000 with CORS enabled.');
+                console.error(error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function loadAll() {
+            showLoading();
+            hideError();
+
+            try {
+                const collectionsRes = await fetch(`${CHROMADB_URL}/api/v2/collections`);
+                const collections = await collectionsRes.json();
+
+                const collection = collections.find(c => c.name === COLLECTION_NAME);
+
+                if (!collection) {
+                    showEmptyState();
+                    return;
+                }
+
+                const itemsRes = await fetch(`${CHROMADB_URL}/api/v2/collections/${collection.id}/get`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        limit: 1000,
+                        include: ['metadatas', 'documents']
+                    })
+                });
+
+                const data = await itemsRes.json();
+                displayTimeline(data);
+
+            } catch (error) {
+                showError('Failed to load all data: ' + error.message);
+                console.error(error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function searchScreenshots() {
+            const query = document.getElementById('searchInput').value.trim();
+
+            if (!query) {
+                loadHistory();
+                return;
+            }
+
+            showLoading();
+            hideError();
+
+            try {
+                const collectionsRes = await fetch(`${CHROMADB_URL}/api/v2/collections`);
+                const collections = await collectionsRes.json();
+
+                const collection = collections.find(c => c.name === COLLECTION_NAME);
+
+                if (!collection) {
+                    showError('Collection not found');
+                    return;
+                }
+
+                const searchRes = await fetch(`${CHROMADB_URL}/api/v2/collections/${collection.id}/query`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query_texts: [query],
+                        n_results: 10,
+                        include: ['metadatas', 'documents', 'distances']
+                    })
+                });
+
+                const results = await searchRes.json();
+                displaySearchResults(results, query);
+
+            } catch (error) {
+                showError('Search failed: ' + error.message);
+                console.error(error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function displayTimeline(data) {
+            const timeline = document.getElementById('timeline');
+            const emptyState = document.getElementById('emptyState');
+
+            if (!data.ids || data.ids.length === 0) {
+                timeline.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            emptyState.style.display = 'none';
+
+            let html = '';
+            for (let i = 0; i < data.ids.length; i++) {
+                const meta = data.metadatas[i];
+                const doc = data.documents[i];
+                const time = new Date(meta.timestamp).toLocaleString('zh-CN');
+                const classification = meta.classification || 'normal';
+
+                html += `
+                    <div class="timeline-item">
+                        <div class="timeline-header">
+                            <span class="timeline-time">⏰ ${time}</span>
+                            <span class="timeline-badge badge-${classification}">${classification}</span>
+                        </div>
+                        <div class="timeline-description">
+                            ${doc || 'No description'}
+                        </div>
+                        <div class="timeline-meta">
+                            <span>📱 App: ${meta.currentApp || 'Unknown'}</span>
+                            <span>📐 Size: ${meta.width}x${meta.height}</span>
+                            <span>📄 ${meta.filePath?.split('/').pop() || 'N/A'}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            timeline.innerHTML = html;
+        }
+
+        function displaySearchResults(results, query) {
+            const timeline = document.getElementById('timeline');
+            const emptyState = document.getElementById('emptyState');
+
+            if (!results.ids || !results.ids[0] || results.ids[0].length === 0) {
+                timeline.innerHTML = '';
+                emptyState.style.display = 'block';
+                document.querySelector('#emptyState h3').textContent = 'No results found';
+                document.querySelector('#emptyState p').textContent = `No screenshots match "${query}"`;
+                return;
+            }
+
+            emptyState.style.display = 'none';
+
+            let html = `<h2 style="margin-bottom: 20px; color: #2d3748;">🔍 Search results for "${query}"</h2>`;
+
+            const ids = results.ids[0];
+            const distances = results.distances[0];
+            const metadatas = results.metadatas[0];
+            const documents = results.documents[0];
+
+            for (let i = 0; i < ids.length; i++) {
+                const meta = metadatas[i];
+                const doc = documents[i];
+                const similarity = (1 - distances[i]) * 100;
+                const time = new Date(meta.timestamp).toLocaleString('zh-CN');
+                const classification = meta.classification || 'normal';
+
+                html += `
+                    <div class="timeline-item">
+                        <div class="timeline-header">
+                            <span class="timeline-time">⏰ ${time}</span>
+                            <span class="timeline-badge badge-${classification}">${classification}</span>
+                        </div>
+                        <div class="timeline-description">
+                            ${doc || 'No description'}
+                        </div>
+                        <div class="timeline-meta">
+                            <span>📱 App: ${meta.currentApp || 'Unknown'}</span>
+                            <span>📐 Size: ${meta.width}x${meta.height}</span>
+                            <span class="similarity">✨ ${similarity.toFixed(1)}% match</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            timeline.innerHTML = html;
+        }
+
+        function updateStats(count, name) {
+            document.getElementById('totalCount').textContent = count;
+            document.getElementById('collectionName').textContent = name;
+        }
+
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('timeline').style.display = 'none';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('timeline').style.display = 'block';
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('error');
+            errorEl.textContent = '❌ ' + message;
+            errorEl.style.display = 'block';
+        }
+
+        function hideError() {
+            document.getElementById('error').style.display = 'none';
+        }
+
+        function showEmptyState() {
+            document.getElementById('timeline').innerHTML = '';
+            document.getElementById('emptyState').style.display = 'block';
+        }
+
+        // Load data on page load
+        loadHistory();
+
+        // Auto-refresh every 10 seconds
+        setInterval(loadHistory, 10000);
+    </script>
+</body>
+</html>

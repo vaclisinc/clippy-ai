@@ -1,8 +1,19 @@
 // Core types for Clippy AI
 
-export type EventClassification = 'error' | 'idle' | 'normal'
+export type EventClassification =
+  | 'error'
+  | 'idle'
+  | 'normal'
+  | 'writing'
+  | 'research'
+  | 'code'
 
-export type AgentType = 'debug' | 'learning'
+export type AgentType =
+  | 'debug'
+  | 'learning'
+  | 'writing'
+  | 'research'
+  | 'security'
 
 export interface Screenshot {
   buffer: Buffer
@@ -44,6 +55,7 @@ export interface AgentResponse {
   shouldAssist: boolean
   suggestion?: Suggestion
   reasoning?: string
+  classification?: EventClassification  // Add classification for screenshot storage
 }
 
 export interface ClassificationResult {
@@ -55,9 +67,28 @@ export interface ClassificationResult {
 export interface Config {
   openRouterApiKey?: string
   anthropicApiKey?: string
+  brightDataApiKey?: string
+  codeRabbitApiKey?: string
   screenshotInterval: number
   idleThreshold: number
   debug: boolean
+}
+
+export interface ScreenshotMetadata {
+  id: string
+  filePath: string
+  timestamp: number
+  classification: EventClassification
+  description?: string
+  currentApp?: string
+  width: number
+  height: number
+}
+
+export interface VectorSearchResult {
+  metadata: ScreenshotMetadata
+  similarity: number
+  screenshot?: Screenshot
 }
 
 export type CaptureMode = 'single' | 'sequence'

@@ -22,7 +22,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleSuggestionPanel: (open: boolean) =>
     ipcRenderer.invoke('toggle-suggestion-panel', open),
   moveClippyWindow: (deltaX: number, deltaY: number) =>
-    ipcRenderer.invoke('move-clippy-window', { deltaX, deltaY })
+    ipcRenderer.invoke('move-clippy-window', { deltaX, deltaY }),
+  getScreenshotHistory: (limit?: number) =>
+    ipcRenderer.invoke('get-screenshot-history', limit),
+  searchScreenshots: (query: string, limit?: number) =>
+    ipcRenderer.invoke('search-screenshots', query, limit)
 })
 
 // TypeScript declaration for the exposed API
@@ -39,6 +43,8 @@ declare global {
       reportActivity: () => Promise<void>
       toggleSuggestionPanel: (open: boolean) => Promise<void>
       moveClippyWindow: (deltaX: number, deltaY: number) => Promise<void>
+      getScreenshotHistory: (limit?: number) => Promise<any[]>
+      searchScreenshots: (query: string, limit?: number) => Promise<any[]>
     }
   }
 }

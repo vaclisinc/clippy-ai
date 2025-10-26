@@ -128,10 +128,79 @@ export class OpenRouterClient {
   }
 
   /**
+   * Generate a description of the screenshot for ChromaDB embedding
+   */
+  async describeScreenshot(screenshot: Screenshot): Promise<string> {
+    try {
+      if (this.anthropicClient) {
+        const response = await this.anthropicClient.messages.create({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 150,
+          temperature: 0,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'image' as const,
+                  source: {
+                    type: 'base64' as const,
+                    media_type: 'image/png' as const,
+                    data: screenshot.buffer.toString('base64')
+                  }
+                },
+                {
+                  type: 'text',
+                  text: 'Describe this screenshot in 1-2 sentences. Focus on the main content, activity, and any visible text or UI elements.'
+                }
+              ] as any
+            }
+          ]
+        })
+
+        return this.extractTextFromAnthropic(response.content)
+      }
+
+      if (this.openRouterClient) {
+        const response = await this.openRouterClient.chat.completions.create({
+          model: 'openai/gpt-4o-mini',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'image_url' as const,
+                  image_url: {
+                    url: `data:image/png;base64,${screenshot.buffer.toString('base64')}`,
+                    detail: 'low'
+                  }
+                },
+                {
+                  type: 'text',
+                  text: 'Describe this screenshot in 1-2 sentences. Focus on the main content, activity, and any visible text or UI elements.'
+                }
+              ] as any
+            }
+          ],
+          max_tokens: 150,
+          temperature: 0
+        })
+
+        return response.choices[0]?.message?.content || ''
+      }
+
+      return ''
+    } catch (error) {
+      console.error('[OpenRouter] Failed to describe screenshot:', error)
+      return ''
+    }
+  }
+
+  /**
    * Quick classification using GPT-4o mini (cheap and fast)
    */
   async classify(frames: Screenshot[]): Promise<{
-    classification: 'error' | 'idle' | 'normal'
+    classification: 'error' | 'idle' | 'normal' | 'writing' | 'research' | 'code'
     confidence: number
   }> {
     if (frames.length === 0) {
@@ -152,7 +221,7 @@ export class OpenRouterClient {
   private async classifyWithOpenRouter(
     frames: Screenshot[]
   ): Promise<{
-    classification: 'error' | 'idle' | 'normal'
+    classification: 'error' | 'idle' | 'normal' | 'writing' | 'research' | 'code'
     confidence: number
   }> {
     if (!this.openRouterClient) {
@@ -163,9 +232,16 @@ export class OpenRouterClient {
       ...this.buildOpenAIImageBlocks(frames),
       {
         type: 'text',
-        text: `You are given ${frames.length} sequential screenshots captured roughly one second apart (oldest first). Analyze the sequence to detect if the user encountered an error, appears idle, or is working normally.
+        text: `You are given ${frames.length} sequential screenshots captured roughly one second apart (oldest first). Classify the user's activity:
 
-Return JSON: {"classification":"error|idle|normal","confidence":0.0-1.0}`
+- "error": visible error messages, exceptions, stack traces
+- "idle": minimal change, user reading or waiting
+- "normal": active work but doesn't fit other categories
+- "writing": writing documents, emails, markdown, or any text content
+- "research": browsing web, reading articles, looking up information
+- "code": writing or editing code in an IDE or code editor
+
+Return JSON: {"classification":"error|idle|normal|writing|research|code","confidence":0.0-1.0}`
       }
     ] as any
 
@@ -193,7 +269,7 @@ Return JSON: {"classification":"error|idle|normal","confidence":0.0-1.0}`
   private async classifyWithAnthropic(
     frames: Screenshot[]
   ): Promise<{
-    classification: 'error' | 'idle' | 'normal'
+    classification: 'error' | 'idle' | 'normal' | 'writing' | 'research' | 'code'
     confidence: number
   }> {
     if (!this.anthropicClient) {
@@ -207,9 +283,12 @@ Return JSON: {"classification":"error|idle|normal","confidence":0.0-1.0}`
         text: `You are given ${frames.length} sequential screenshots captured roughly one second apart (oldest first). Classify the overall activity as:
 - "error": visible error messages, exceptions, stack traces
 - "idle": minimal change, user likely reading or waiting
-- "normal": active work or browsing
+- "normal": active work but doesn't fit other categories
+- "writing": writing documents, emails, markdown, or any text content
+- "research": browsing web, reading articles, looking up information
+- "code": writing or editing code in an IDE or code editor
 
-Respond in JSON: {"classification":"error|idle|normal","confidence":0.0-1.0}`
+Respond in JSON: {"classification":"error|idle|normal|writing|research|code","confidence":0.0-1.0}`
       }
     ] as any
 
@@ -240,7 +319,7 @@ Respond in JSON: {"classification":"error|idle|normal","confidence":0.0-1.0}`
   async analyze(
     frames: Screenshot[],
     context: string,
-    agentType: 'debug' | 'learning'
+    agentType: 'debug' | 'learning' | 'writing' | 'research' | 'security'
   ): Promise<{
     shouldAssist: boolean
     suggestion?: string
@@ -264,7 +343,7 @@ Respond in JSON: {"classification":"error|idle|normal","confidence":0.0-1.0}`
   private async analyzeWithOpenRouter(
     frames: Screenshot[],
     context: string,
-    agentType: 'debug' | 'learning'
+    agentType: 'debug' | 'learning' | 'writing' | 'research' | 'security'
   ): Promise<{
     shouldAssist: boolean
     suggestion?: string
@@ -299,6 +378,45 @@ Respond in JSON:
 {
   "shouldAssist": true/false,
   "suggestion": "your explanation in markdown",
+  "reasoning": "why you decided to help or not"
+}`,
+      writing: `You are a writing coach assistant. Analyze the user's writing in these screenshots.
+
+If you can provide helpful writing feedback:
+1. Identify grammar, style, or clarity improvements
+2. Suggest better phrasing or structure
+3. Keep suggestions concise and actionable
+
+Respond in JSON:
+{
+  "shouldAssist": true/false,
+  "suggestion": "your writing feedback in markdown",
+  "reasoning": "why you decided to help or not"
+}`,
+      research: `You are a research assistant. The user is browsing or reading content.
+
+If you can help with their research:
+1. Summarize key points from what they're viewing
+2. Suggest related resources or search terms
+3. Offer to find more information on the topic
+
+Respond in JSON:
+{
+  "shouldAssist": true/false,
+  "suggestion": "your research assistance in markdown",
+  "reasoning": "why you decided to help or not"
+}`,
+      security: `You are a code security assistant. Analyze the code in these screenshots for security issues.
+
+If you spot potential security vulnerabilities:
+1. Identify the security risk (SQL injection, XSS, etc.)
+2. Explain the potential impact
+3. Suggest secure alternatives
+
+Respond in JSON:
+{
+  "shouldAssist": true/false,
+  "suggestion": "your security feedback in markdown",
   "reasoning": "why you decided to help or not"
 }`
     }
@@ -336,7 +454,7 @@ Respond in JSON:
   private async analyzeWithAnthropic(
     frames: Screenshot[],
     context: string,
-    agentType: 'debug' | 'learning'
+    agentType: 'debug' | 'learning' | 'writing' | 'research' | 'security'
   ): Promise<{
     shouldAssist: boolean
     suggestion?: string
@@ -371,6 +489,45 @@ Respond in JSON:
 {
   "shouldAssist": true/false,
   "suggestion": "your explanation in markdown",
+  "reasoning": "why you decided to help or not"
+}`,
+      writing: `You are a writing coach assistant. Analyze the user's writing in these screenshots.
+
+If you can provide helpful writing feedback:
+1. Identify grammar, style, or clarity improvements
+2. Suggest better phrasing or structure
+3. Keep suggestions concise and actionable
+
+Respond in JSON:
+{
+  "shouldAssist": true/false,
+  "suggestion": "your writing feedback in markdown",
+  "reasoning": "why you decided to help or not"
+}`,
+      research: `You are a research assistant. The user is browsing or reading content.
+
+If you can help with their research:
+1. Summarize key points from what they're viewing
+2. Suggest related resources or search terms
+3. Offer to find more information on the topic
+
+Respond in JSON:
+{
+  "shouldAssist": true/false,
+  "suggestion": "your research assistance in markdown",
+  "reasoning": "why you decided to help or not"
+}`,
+      security: `You are a code security assistant. Analyze the code in these screenshots for security issues.
+
+If you spot potential security vulnerabilities:
+1. Identify the security risk (SQL injection, XSS, etc.)
+2. Explain the potential impact
+3. Suggest secure alternatives
+
+Respond in JSON:
+{
+  "shouldAssist": true/false,
+  "suggestion": "your security feedback in markdown",
   "reasoning": "why you decided to help or not"
 }`
     }
