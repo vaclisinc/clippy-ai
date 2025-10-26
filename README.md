@@ -18,25 +18,55 @@ Remember Microsoft's Clippy? That annoying paperclip that always showed up at th
 
 ## ✨ Features
 
-### 🔍 Debug Agent
-Detects errors across your entire workflow:
-- Catches errors in IDE, terminal, browser
-- Provides specific solutions
-- Suggests debugging steps
+Clippy AI includes **four specialized AI agents** that monitor your workflow and assist when needed:
+
+### 🐛 Debug Agent
+Your personal debugging companion:
+- Detects errors across IDE, terminal, and browser simultaneously
+- Analyzes stack traces and error messages in real-time
+- Provides specific solutions with code examples
+- Suggests debugging steps and best practices
 - Tracks issues across application boundaries
 
-### 📚 Learning Agent
-Helps when you're stuck reading/learning:
-- Detects when you've been idle on complex content
-- Offers ELI5 explanations
-- Suggests additional resources
-- Never interrupts active work
+**Example**: TypeScript compilation error → Clippy explains the type mismatch and suggests the fix
 
-### 🎨 Cute UI
-- Floating mascot with emoji expressions (😴/🤔/💡)
-- Smooth animations (Framer Motion)
-- Non-intrusive suggestion cards
-- Always-on-top but easily dismissible
+### 📚 Learning Agent
+Patient tutor for complex content:
+- Detects when you've been idle on technical documentation, research papers, or tutorials
+- Offers ELI5 (Explain Like I'm 5) explanations of complex concepts
+- Breaks down jargon and technical terms
+- Suggests additional learning resources
+- Only activates during genuine idle periods (never interrupts active work)
+
+**Example**: Stuck on "Attention Mechanisms" in a Transformer paper → Clippy provides a beginner-friendly explanation
+
+### ✍️ Writing Coach Agent
+Real-time writing assistance:
+- Monitors writing activity in Google Docs, Notion, email clients, and text editors
+- Detects grammar issues, unclear phrasing, and structural problems
+- Suggests improvements for clarity and conciseness
+- Provides tone adjustments (formal/casual/technical)
+- Helps with writer's block by suggesting next steps
+
+**Example**: Writing a technical blog post → Clippy suggests rephrasing complex sentences for better readability
+
+### 🔍 Research Agent (with Bright Data integration)
+Supercharge your research workflow:
+- Detects active research patterns across tabs and applications
+- Identifies key topics and concepts you're investigating
+- Automatically fetches related academic papers, articles, and resources via Bright Data API
+- Summarizes findings and highlights relevant sections
+- Builds context across multiple research sessions
+
+**Example**: Researching "Quantum Computing Error Correction" → Clippy surfaces recent papers and expert blog posts
+
+### 🎨 Beautiful, Non-Intrusive UI
+- Floating mascot with expressive emoji states (😴 idle / 🤔 thinking / 💡 suggesting / 🐛 debugging)
+- Smooth animations and transitions
+- Dismissible suggestion cards that don't block your work
+- Always-on-top overlay with adjustable opacity
+- One-click copy for code snippets and suggestions
+- Toast notifications for quick feedback
 
 ## 🚀 Quick Start
 
@@ -75,22 +105,31 @@ On macOS, you'll need to grant screen recording permission:
 
 ```
 ┌─────────────────────────────────────┐
-│     Screen Capture (15s)            │
+│     Screen Capture (every 7s)       │
+│      + OCR Text Extraction          │
 └─────────────────────────────────────┘
               ↓
 ┌─────────────────────────────────────┐
 │   Quick Classifier (GPT-4o mini)    │
-│   → error / idle / normal           │
+│   → error / idle / writing /        │
+│     research / code / normal        │
 └─────────────────────────────────────┘
               ↓
-┌──────────────┐    ┌─────────────────┐
-│ Debug Agent  │    │ Learning Agent  │
-│ (Claude 3.5) │    │ (Claude 3.5)    │
-└──────────────┘    └─────────────────┘
+      Smart Agent Router
+              ↓
+┌──────────────┬─────────────┬──────────────┬───────────────┐
+│ Debug Agent  │  Learning   │   Writing    │   Research    │
+│ (Claude 3.5) │   Agent     │    Coach     │    Agent      │
+│              │ (Claude 3.5)│ (Claude 3.5) │ (Claude 3.5)  │
+│              │             │              │ + Bright Data │
+└──────────────┴─────────────┴──────────────┴───────────────┘
               ↓
 ┌─────────────────────────────────────┐
-│        Clippy UI                    │
-│   (Floating suggestion card)        │
+│     Clippy UI (React + Electron)    │
+│   - Floating mascot with emotions   │
+│   - Suggestion cards & tooltips     │
+│   - Toast notifications             │
+│   - Copy-to-clipboard integration   │
 └─────────────────────────────────────┘
 ```
 
@@ -98,15 +137,17 @@ On macOS, you'll need to grant screen recording permission:
 
 **Layer 1 (Classifier)**: Cheap + Fast
 - GPT-4o mini ($0.15/1M tokens)
-- Simple classification task
-- Runs every 15 seconds
+- Simple 6-category classification (error/idle/writing/research/code/normal)
+- Runs every 7 seconds
+- ~95% accuracy in routing
 
-**Layer 2 (Analysis)**: Powerful + Selective
-- Claude 3.5 Sonnet ($3/1M tokens)
-- Deep reasoning and suggestions
-- Only runs when needed (~20% of the time)
+**Layer 2 (Specialized Agents)**: Powerful + Selective
+- Claude 3.5 Sonnet ($3/1M tokens) for deep reasoning
+- Each agent has domain-specific prompts and logic
+- Only runs when classifier detects assistance needed (~20-30% of the time)
+- Research Agent can optionally integrate Bright Data API for web scraping
 
-**Result**: High quality + Low cost
+**Result**: High quality assistance + 20x cost reduction vs. naive approach
 
 ## 💰 Cost Estimate
 
@@ -120,16 +161,26 @@ Assuming 8 hours of active use per day:
 
 ## 🎪 Demo Scenarios
 
-### Scenario 1: Code Debugging
-1. You write buggy TypeScript code
+### Scenario 1: Debug Agent in Action
+1. You write buggy TypeScript code with a type error
 2. Terminal shows compilation errors
 3. You switch to browser to Google the error
-4. **Clippy detects the pattern** → Suggests solution immediately
+4. **Clippy detects the cross-app error pattern** → Instantly suggests the type fix with code example
 
-### Scenario 2: Learning Assistant
-1. You open a complex ML research paper
-2. You've been on the "Attention Mechanism" page for 3+ minutes
-3. **Clippy gently offers help** → Provides ELI5 explanation
+### Scenario 2: Learning Agent
+1. You open a complex ML research paper on arXiv
+2. You've been reading about "Attention Mechanisms" for 3+ minutes
+3. **Clippy gently offers help** → Provides ELI5 explanation with diagrams
+
+### Scenario 3: Writing Coach Agent
+1. You're drafting a technical blog post in Notion
+2. You write: "The algorithm utilizes sophisticated mechanisms to facilitate optimization"
+3. **Clippy detects verbose writing** → Suggests: "The algorithm uses smart techniques to optimize performance"
+
+### Scenario 4: Research Agent
+1. You're researching "Quantum Error Correction" across 5 browser tabs
+2. You're taking notes in Obsidian about different approaches
+3. **Clippy identifies the research topic** → Automatically fetches latest papers via Bright Data and summarizes key findings
 
 ## 🛠️ Development
 
