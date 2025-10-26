@@ -134,14 +134,22 @@ function setClippyBounds(
       screen.getPrimaryDisplay().workAreaSize
     x = screenWidth - size.width - WINDOW_MARGIN
     y = screenHeight - size.height - WINDOW_MARGIN
+  } else {
+    // When resizing, maintain bottom-right position
+    const oldWidth = clippyBounds.width
+    const oldHeight = clippyBounds.height
+    const widthDiff = size.width - oldWidth
+    const heightDiff = size.height - oldHeight
+    x = x - widthDiff // Move left when expanding, right when collapsing
+    y = y - heightDiff // Move up when expanding, down when collapsing
   }
 
   const clamped = clampToScreen(x, y, size.width, size.height)
   clippyBounds = {
-    x: clamped.x,
-    y: clamped.y,
-    width: size.width,
-    height: size.height
+    x: Math.round(clamped.x),
+    y: Math.round(clamped.y),
+    width: Math.round(size.width),
+    height: Math.round(size.height)
   }
 
   clippyWindow.setBounds(clippyBounds, false)

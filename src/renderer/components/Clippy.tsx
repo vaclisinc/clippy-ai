@@ -23,6 +23,7 @@ export default function Clippy({ suggestion, pet, onDismiss }: ClippyProps) {
   const [state, setState] = useState<ClippyState>('sleeping')
   const [panelOpen, setPanelOpen] = useState(false)
   const [hasUnread, setHasUnread] = useState(false)
+  const [showCopyToast, setShowCopyToast] = useState(false)
   const dragOriginRef = useRef<{ x: number; y: number } | null>(null)
   const dragPointerIdRef = useRef<number | null>(null)
   const dragActiveRef = useRef(false)
@@ -105,8 +106,8 @@ export default function Clippy({ suggestion, pet, onDismiss }: ClippyProps) {
     if (!suggestion?.content) return
     try {
       await navigator.clipboard.writeText(suggestion.content)
-      // Could add a toast notification here
-      console.log('Content copied to clipboard')
+      setShowCopyToast(true)
+      setTimeout(() => setShowCopyToast(false), 2000)
     } catch (error) {
       console.error('Failed to copy:', error)
     }
@@ -209,6 +210,12 @@ export default function Clippy({ suggestion, pet, onDismiss }: ClippyProps) {
               </>
             )}
           </div>
+
+          {showCopyToast && (
+            <div className="copy-toast">
+              Copied
+            </div>
+          )}
         </div>
       )}
 
@@ -462,6 +469,32 @@ export default function Clippy({ suggestion, pet, onDismiss }: ClippyProps) {
 
         .action-btn.primary:hover {
           background: #2a2a2a;
+        }
+
+        .copy-toast {
+          position: absolute;
+          bottom: 80px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: #0a0a0a;
+          color: #ffffff;
+          padding: 8px 16px;
+          border-radius: 6px;
+          font-size: 13px;
+          font-weight: 400;
+          animation: slideUp 0.2s ease;
+          pointer-events: none;
+        }
+
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateX(-50%) translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+          }
         }
 
         @keyframes wiggle {
