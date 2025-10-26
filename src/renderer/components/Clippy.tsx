@@ -5,10 +5,25 @@ type ClippyState = 'sleeping' | 'thinking' | 'suggesting'
 
 interface ClippyProps {
   suggestion: Suggestion | null
+  pet: string
   onDismiss: () => Promise<void> | void
 }
 
-export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
+const PET_EMOJI_MAP: Record<
+  string,
+  { sleeping: string; thinking: string; suggesting: string }
+> = {
+  clippy: { sleeping: '😴', thinking: '🤔', suggesting: '💡' },
+  cat: { sleeping: '😴', thinking: '😼', suggesting: '😺' },
+  dog: { sleeping: '😴', thinking: '🐕', suggesting: '🐶' },
+  bunny: { sleeping: '😴', thinking: '🐰', suggesting: '🐇' }
+}
+
+export default function Clippy({
+  suggestion,
+  pet,
+  onDismiss
+}: ClippyProps) {
   const [state, setState] = useState<ClippyState>('sleeping')
   const [panelOpen, setPanelOpen] = useState(false)
   const [hasUnread, setHasUnread] = useState(false)
@@ -22,34 +37,34 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
   }, [])
 
   useEffect(() => {
+    if (!window.electronAPI?.toggleSuggestionPanel) return
+    window.electronAPI.toggleSuggestionPanel(panelOpen)
+  }, [panelOpen])
+
+  useEffect(() => {
     if (suggestion) {
       if (panelOpen) {
         setHasUnread(false)
       } else {
         setHasUnread(true)
       }
-
     } else {
       setPanelOpen(false)
       setHasUnread(false)
     }
   }, [suggestion, panelOpen])
 
-  useEffect(() => {
-    if (!window.electronAPI?.toggleSuggestionPanel) return
-    window.electronAPI.toggleSuggestionPanel(panelOpen)
-  }, [panelOpen])
-
   const getEmoji = () => {
+    const palette = PET_EMOJI_MAP[pet] || PET_EMOJI_MAP.clippy
     switch (state) {
       case 'sleeping':
-        return '😴'
+        return palette.sleeping
       case 'thinking':
-        return '🤔'
+        return palette.thinking
       case 'suggesting':
-        return '💡'
+        return palette.suggesting
       default:
-        return '😊'
+        return palette.suggesting
     }
   }
 
@@ -66,6 +81,10 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
     await onDismiss()
     setPanelOpen(false)
     setHasUnread(false)
+  }
+
+  const handleOpenSettings = () => {
+    window.electronAPI?.openControlPanel()
   }
 
   return (
@@ -85,6 +104,14 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
           {state === 'thinking' && 'Analyzing...'}
           {state === 'suggesting' && 'New suggestion'}
         </div>
+        <button
+          type="button"
+          className="settings-btn"
+          onClick={handleOpenSettings}
+          title="Open control panel"
+        >
+          ⚙️
+        </button>
       </div>
 
       {panelOpen && (
@@ -142,6 +169,7 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
           background: transparent;
           color: #1f1f1f;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          -webkit-app-region: drag;
         }
 
         .clippy-shell.is-open {
@@ -183,6 +211,7 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
           cursor: pointer;
           transition: transform 0.2s ease, box-shadow 0.2s ease;
           box-shadow: 0 10px 30px rgba(15, 23, 42, 0.2);
+          -webkit-app-region: no-drag;
         }
 
         .emoji-button:hover {
@@ -224,6 +253,30 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
           font-size: 12px;
           color: rgba(15, 23, 42, 0.65);
           font-weight: 500;
+          -webkit-app-region: no-drag;
+        }
+
+        .settings-btn {
+          border: none;
+          background: rgba(255, 255, 255, 0.8);
+          border-radius: 999px;
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 16px;
+          cursor: pointer;
+          margin-top: 4px;
+          color: rgba(15, 23, 42, 0.7);
+          box-shadow: 0 6px 14px rgba(15, 23, 42, 0.18);
+          transition: transform 0.15s ease, box-shadow 0.15s ease;
+          -webkit-app-region: no-drag;
+        }
+
+        .settings-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 10px 20px rgba(15, 23, 42, 0.25);
         }
 
         .suggestion-panel {
@@ -236,6 +289,7 @@ export default function Clippy({ suggestion, onDismiss }: ClippyProps) {
           padding: 16px;
           box-sizing: border-box;
           box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
+          -webkit-app-region: no-drag;
         }
 
         .panel-header {

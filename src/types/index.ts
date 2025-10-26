@@ -59,3 +59,10 @@ export interface Config {
   idleThreshold: number
   debug: boolean
 }
+
+export type CaptureMode = 'single' | 'sequence'
+
+export interface UserPreferences {
+  captureMode: CaptureMode
+  pet: string
+}

@@ -159,6 +159,13 @@ On first run, macOS will request screen recording permission:
 
 ## Development Notes
 
+### Control Panel & Pets
+
+- Access from the menu bar icon → **Control Panel** (creates a separate Electron window).
+- Users can switch between `Cinematic Timeline` (1 fps clips) and `Quick Snapshot` capture modes.
+- Pet selector lets them swap the on-screen companion (emoji-based today, swap in animated sprites later).
+- Preference changes persist via a JSON file under `userData/preferences.json` and broadcast to both renderer windows.
+
 ### Adding a New Agent
 
 1. Create `src/agents/new-agent.ts` extending `BaseAgent`

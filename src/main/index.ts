@@ -13,8 +13,10 @@ import { ScreenCapture } from './screen-capture'
 import { ContextDB } from '../lib/db'
 import { AgentRouter } from '../agents/router'
 import { loadConfig } from './config'
-import type { Screenshot, Config } from '../types'
+import { preferencesStore } from './preferences'
+import type { Screenshot, Config, UserPreferences } from '../types'
 let clippyWindow: BrowserWindow | null = null
+let settingsWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 let screenCapture: ScreenCapture
@@ -22,6 +24,7 @@ let db: ContextDB
 let router: AgentRouter
 let captureInterval: NodeJS.Timeout | null = null
 let config: Config
+let preferences: UserPreferences
 
 const WINDOW_MARGIN = 24
 const COLLAPSED_SIZE = { width: 160, height: 160 }
@@ -37,6 +40,40 @@ const suppressedSuggestions = new Map<string, number>()
 const frameBuffer: Screenshot[] = []
 let frameBatchSize = 15
 let frameBatchCount = 0
+let frameCaptureIntervalMs = FRAME_CAPTURE_INTERVAL_MS
+let clippyBounds: { x: number; y: number; width: number; height: number } | null = null
+
+function applyPreferences(next: UserPreferences, options: { restart?: boolean } = {}) {
+  preferences = next
+
+  if (preferences.captureMode === 'sequence') {
+    frameCaptureIntervalMs = FRAME_CAPTURE_INTERVAL_MS
+    frameBatchSize = Math.max(config.screenshotInterval, 1)
+  } else {
+    frameCaptureIntervalMs = Math.max(config.screenshotInterval, 1) * 1000
+    frameBatchSize = 1
+  }
+
+  console.log(
+    `[Clippy AI] Preferences applied: mode=${preferences.captureMode}, pet=${preferences.pet}, interval=${frameCaptureIntervalMs}ms, batch=${frameBatchSize}`
+  )
+
+  if (options.restart) {
+    restartScreenMonitoring()
+  }
+
+  broadcastPreferences()
+}
+
+function broadcastPreferences() {
+  if (clippyWindow && !clippyWindow.isDestroyed()) {
+    clippyWindow.webContents.send('preferences', preferences)
+  }
+
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send('preferences', preferences)
+  }
+}
 
 function createSuggestionSignature(suggestion: {
   type: string
@@ -62,20 +99,46 @@ function updateClippyState(state: 'sleeping' | 'thinking' | 'suggesting') {
   }
 }
 
-function positionClippyWindow(window: BrowserWindow, size = COLLAPSED_SIZE) {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize
-  const x = width - size.width - WINDOW_MARGIN
-  const y = height - size.height - WINDOW_MARGIN
+function clampToScreen(
+  x: number,
+  y: number,
+  width: number,
+  height: number
+): { x: number; y: number } {
+  const { width: screenWidth, height: screenHeight } =
+    screen.getPrimaryDisplay().workAreaSize
 
-  window.setBounds(
-    {
-      x,
-      y,
-      width: size.width,
-      height: size.height
-    },
-    false
-  )
+  const clampedX = Math.min(Math.max(0, x), screenWidth - width)
+  const clampedY = Math.min(Math.max(0, y), screenHeight - height)
+
+  return { x: clampedX, y: clampedY }
+}
+
+function setClippyBounds(
+  size: { width: number; height: number },
+  { snapToCorner = false }: { snapToCorner?: boolean } = {}
+) {
+  if (!clippyWindow || clippyWindow.isDestroyed()) return
+
+  let x = clippyBounds?.x ?? 0
+  let y = clippyBounds?.y ?? 0
+
+  if (!clippyBounds || snapToCorner) {
+    const { width: screenWidth, height: screenHeight } =
+      screen.getPrimaryDisplay().workAreaSize
+    x = screenWidth - size.width - WINDOW_MARGIN
+    y = screenHeight - size.height - WINDOW_MARGIN
+  }
+
+  const clamped = clampToScreen(x, y, size.width, size.height)
+  clippyBounds = {
+    x: clamped.x,
+    y: clamped.y,
+    width: size.width,
+    height: size.height
+  }
+
+  clippyWindow.setBounds(clippyBounds, false)
 }
 
 function createClippyWindow() {
@@ -97,7 +160,7 @@ function createClippyWindow() {
     }
   })
 
-  positionClippyWindow(clippyWindow, COLLAPSED_SIZE)
+  setClippyBounds(COLLAPSED_SIZE, { snapToCorner: true })
 
   if (process.env.NODE_ENV === 'development') {
     const devServerURL = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173'
@@ -109,6 +172,62 @@ function createClippyWindow() {
       hash: 'clippy'
     })
   }
+
+  clippyWindow.webContents.on('did-finish-load', () => {
+    broadcastPreferences()
+  })
+
+  clippyWindow.on('move', () => {
+    if (!clippyWindow || clippyWindow.isDestroyed()) return
+    const bounds = clippyWindow.getBounds()
+    clippyBounds = bounds
+  })
+}
+
+function openSettingsWindow() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.show()
+    settingsWindow.focus()
+    return
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: 440,
+    height: 580,
+    show: false,
+    resizable: false,
+    maximizable: false,
+    title: 'Clippy Control Center',
+    backgroundColor: '#f8fafc',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  })
+
+  settingsWindow.on('closed', () => {
+    settingsWindow = null
+  })
+
+  settingsWindow.once('ready-to-show', () => {
+    settingsWindow?.show()
+  })
+
+  if (process.env.NODE_ENV === 'development') {
+    const devServerURL = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173'
+    const settingsURL = `${devServerURL}#/settings`
+    console.log(`[Settings] Loading dev server: ${settingsURL}`)
+    settingsWindow.loadURL(settingsURL)
+  } else {
+    settingsWindow.loadFile(join(__dirname, '../renderer/index.html'), {
+      hash: 'settings'
+    })
+  }
+
+  settingsWindow.webContents.on('did-finish-load', () => {
+    broadcastPreferences()
+  })
 }
 
 function createTray() {
@@ -117,6 +236,7 @@ function createTray() {
   tray = new Tray(icon)
 
   const contextMenu = Menu.buildFromTemplate([
+    { label: 'Control Panel', click: () => openSettingsWindow() },
     { label: 'Show Clippy', click: () => clippyWindow?.show() },
     { label: 'Hide Clippy', click: () => clippyWindow?.hide() },
     { type: 'separator' },
@@ -127,7 +247,30 @@ function createTray() {
   tray.setToolTip('Clippy AI')
 }
 
+function stopScreenMonitoring() {
+  if (captureInterval) {
+    clearInterval(captureInterval)
+    captureInterval = null
+  }
+}
+
+async function restartScreenMonitoring() {
+  stopScreenMonitoring()
+  frameBuffer.length = 0
+  frameBatchCount = 0
+  try {
+    await startScreenMonitoring()
+  } catch (error) {
+    console.error('[Clippy AI] Failed to restart monitoring:', error)
+  }
+}
+
 async function startScreenMonitoring() {
+  if (!screenCapture || !db || !router) {
+    console.warn('[Clippy AI] Monitoring requested before initialization is complete')
+    return
+  }
+
   if (captureInterval) {
     clearInterval(captureInterval)
   }
@@ -263,7 +406,7 @@ async function startScreenMonitoring() {
 
       updateClippyState('sleeping')
     }
-  }, FRAME_CAPTURE_INTERVAL_MS)
+  }, frameCaptureIntervalMs)
 }
 
 app.whenReady().then(async () => {
@@ -295,6 +438,10 @@ app.whenReady().then(async () => {
       `[Clippy AI] Will analyze every ${frameBatchSize} frames (~${frameBatchSize} seconds).`
     )
   }
+
+  // Load and apply user preferences
+  preferences = preferencesStore.get()
+  applyPreferences(preferences)
 
   // Create windows first (so user sees something)
   createClippyWindow()
@@ -334,9 +481,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  if (captureInterval) {
-    clearInterval(captureInterval)
-  }
+  stopScreenMonitoring()
   db?.close()
 })
 
@@ -358,5 +503,19 @@ ipcMain.handle('toggle-suggestion-panel', (_event, open: boolean) => {
   if (!clippyWindow) return
 
   const targetSize = open ? EXPANDED_SIZE : COLLAPSED_SIZE
-  positionClippyWindow(clippyWindow, targetSize)
+  setClippyBounds(targetSize)
+})
+
+ipcMain.handle('get-preferences', () => {
+  return preferences
+})
+
+ipcMain.handle('set-preferences', (_event, partial: Partial<UserPreferences>) => {
+  const next = preferencesStore.set(partial)
+  applyPreferences(next, { restart: true })
+  return next
+})
+
+ipcMain.handle('open-control-panel', () => {
+  openSettingsWindow()
 })
